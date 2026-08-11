@@ -1,0 +1,53 @@
+{
+  "name": "@lotor.dev/lotor-js",
+  "version": "0.1.0-rc.1",
+  "description": "Framework-independent browser client for Lotor's public application API",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm typecheck && tsx --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "check:browser": "! rg -n 'node:' src",
+    "api:update": "pnpm build && node scripts/check-api.mjs --update",
+    "api:check": "pnpm build && node scripts/check-api.mjs",
+    "package:check": "pnpm build && node scripts/check-package.mjs"
+  },
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/2kims/lotor-js.git"
+  },
+  "homepage": "https://github.com/2kims/lotor-js#readme",
+  "bugs": {
+    "url": "https://github.com/2kims/lotor-js/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^7.1.7"
+  },
+  "packageManager": "pnpm@9.15.0"
+}
