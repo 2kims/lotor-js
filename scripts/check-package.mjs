@@ -131,10 +131,14 @@ process.stdout.write("packed client passed fake cross-origin runtime exercise\\n
   run(process.execPath, ["runtime.mjs"], consumer);
 
   const packedManifest = JSON.parse(readFileSync(join(consumer, "node_modules", "@lotor.dev", "lotor-js", "package.json"), "utf8"));
+  const sourceManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   assert.equal(packedManifest.name, "@lotor.dev/lotor-js");
-  assert.equal(packedManifest.version, "0.1.0-rc.1");
+  assert.equal(packedManifest.version, sourceManifest.version);
   assert.equal(packedManifest.license, "Apache-2.0");
   assert.equal(packedManifest.private, process.env.LOTOR_PUBLIC_RELEASE === "1" ? undefined : true);
+  if (process.env.LOTOR_PUBLIC_RELEASE === "1") {
+    assert.equal(readFileSync(join(consumer, "node_modules", "@lotor.dev", "lotor-js", "README.md")).length, 0);
+  }
   process.stdout.write(`clean packed consumer passed for ${packedManifest.name}@${packedManifest.version}\n`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });

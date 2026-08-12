@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "target": "browser",
-  "source_commit": "35ca9d53c485a923801002d3b540e38595e695c4",
-  "version": "0.1.0-rc.1",
+  "source_commit": "186b43a8db6a5b637c563cbe8f0275e337411e5f",
+  "version": "0.1.0-rc.2",
   "files": [
     {
       "path": ".github/CODEOWNERS",
@@ -30,7 +30,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "75ad0375cdf6d89783b7587519aa5a7e4f649501efcd24a164064b6474ed50f9"
+      "sha256": "b202ed757c0a3333a93d7b3e0c9ca4552054fc5bed5534a78a110cdae89027ee"
     },
     {
       "path": "LICENSE",
@@ -42,7 +42,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "2804e8d3fdec144dd6d142ee2ace14c1ce6327bfa64102f3a3bbeb7a1a4c8c28"
+      "sha256": "9e7edca449a5efe498867086d1840f650bc2ff52ccd05bb372a5493b46187b11"
     },
     {
       "path": "pnpm-lock.yaml",
@@ -50,7 +50,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "d85f9d24d7d8d6abe231c23d9209d9cf099928affed49a72e8c9391d8f10c64c"
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "path": "scripts/check-api.mjs",
@@ -58,7 +58,7 @@
     },
     {
       "path": "scripts/check-package.mjs",
-      "sha256": "6816a8340f18c693a6d45e0838bdbc6519caed36a4e8675b1a2ff63cfe292034"
+      "sha256": "8339771f80d7b838eba06cf51c5b4ea880f1331cba796c28a957b585759f3dd8"
     },
     {
       "path": "SECURITY.md",
