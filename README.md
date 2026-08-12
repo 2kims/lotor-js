@@ -73,6 +73,22 @@ or application backend credential in browser code. Report vulnerabilities
 privately through the repository's security advisory form instead of opening a
 public issue.
 
+## Development
+
+Install the frozen dependency graph and run the release checks:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm check:browser
+pnpm test
+pnpm api:check
+pnpm package:check
+pnpm test:tooling
+pnpm verify:workflows
+```
+
+Releases use conventional squash-merged PR titles, Release Please, and npm trusted publishing. See [RELEASING.md](RELEASING.md) for setup, recovery, and shutdown procedures.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
