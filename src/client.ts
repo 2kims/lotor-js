@@ -1,5 +1,6 @@
 import { BrowserTransport, LotorBrowserError, type BrowserFetch } from "./transport.js";
 import * as decode from "./decode.js";
+import { createSubjectKeyRegistration } from "./key-access.js";
 import {
   MemoryTokenStore,
   type ApplicationSession,
@@ -11,6 +12,13 @@ import {
   type PublicApplicationConfiguration,
   type PublicApplicationPricing,
   type TokenStore,
+  type EnrollSubjectKeyInput,
+  type SubjectKeyEnrollment,
+  type SubjectKeyMutation,
+  type SubjectKeyRecord,
+  type ResourceGrantMutation,
+  type ResourceMember,
+  type EncryptedInvitationMutation,
 } from "./types.js";
 
 export interface LotorBrowserOptions {
@@ -128,6 +136,48 @@ export class LotorBrowserClient {
 
   async organizations(): Promise<OrganizationSummary[]> {
     return decode.organizations(await this.transport.request(`${this.applicationPath}/organizations`, {}, true));
+  }
+
+  async enrollSubjectKey(input: EnrollSubjectKeyInput): Promise<SubjectKeyEnrollment> {
+    const session = await this.session();
+    if (!session.authenticated) throw new LotorBrowserError("Lotor request requires authentication", 401, "unauthenticated");
+    const registration = await createSubjectKeyRegistration({
+      clientId: this.clientId, subject: session.subject, passphrase: input.passphrase,
+      ...(input.deviceId === undefined ? {} : { deviceId: input.deviceId }),
+      ...(input.backupPrivateKeys === undefined ? {} : { backupPrivateKeys: input.backupPrivateKeys }),
+    });
+    const result = decode.subjectKeyMutation(await this.transport.request(`${this.applicationPath}/key-access/subject-keys`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify(registration.request),
+    }, true));
+    if (!result.accepted) throw new LotorBrowserError(`Lotor key enrollment rejected: ${result.reason}`, 409, result.reason);
+    return { ...result, deviceId: registration.keys.deviceId, encryptionPrivateKey: registration.keys.encryptionPrivateKey, signingPrivateKey: registration.keys.signingPrivateKey };
+  }
+
+  async subjectKeys(): Promise<SubjectKeyRecord[]> {
+    return decode.subjectKeys(await this.transport.request(`${this.applicationPath}/key-access/subject-keys`, {}, true));
+  }
+
+  async revokeSubjectKey(keyId: string): Promise<SubjectKeyMutation> {
+    return decode.subjectKeyMutation(await this.transport.request(`${this.applicationPath}/key-access/subject-keys/${encodeURIComponent(bounded(keyId, "keyId", 256))}`, { method: "DELETE", headers: { "X-Lotor-Request": "lotor-js-v1" } }, true));
+  }
+
+  async resourceMembers(scope: string, resource: string): Promise<ResourceMember[]> {
+    const normalizedScope = bounded(scope, "scope", 512);
+    return decode.resourceMembers(await this.transport.request(`${this.applicationPath}/key-access/resource-members?scope=${encodeURIComponent(normalizedScope)}&resource=${encodeURIComponent(bounded(resource, "resource", 512))}`, {}, true), normalizedScope);
+  }
+
+  async submitResourceEnvelope(input: import("./key-access.js").ResourceEnvelopeRequest): Promise<ResourceGrantMutation> {
+    return decode.resourceGrantMutation(await this.transport.request(`${this.applicationPath}/key-access/resource-envelopes`, { method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify(input) }, true));
+  }
+
+  async resourceEnvelope(resource: string): Promise<import("./key-access.js").EncryptedResourceEnvelope> {
+    return decode.resourceEnvelope(await this.transport.request(`${this.applicationPath}/key-access/resource-envelope?resource=${encodeURIComponent(bounded(resource, "resource", 512))}`, {}, true));
+  }
+
+  async acceptEncryptedInvitation(ticket: string, recipientKeyId: string, idempotencyKey: string): Promise<EncryptedInvitationMutation> {
+    return decode.encryptedInvitationMutation(await this.transport.request(`${this.applicationPath}/key-access/invitations/accept`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({ ticket: bounded(ticket, "ticket", 512), recipient_key_id: bounded(recipientKeyId, "recipientKeyId", 256), idempotency_key: bounded(idempotencyKey, "idempotencyKey", 256) }),
+    }, true));
   }
 
   private async createCheckoutSession(input: CreateCheckoutSessionInput): Promise<CheckoutSession> {

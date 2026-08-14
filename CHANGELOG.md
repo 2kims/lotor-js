@@ -4,6 +4,15 @@ All notable public API and compatibility changes are documented here. This
 project follows Semantic Versioning; breaking changes during `0.x` releases are
 called out explicitly.
 
+## 0.1.0-rc.3
+
+- Add client-owned X25519/Ed25519 device enrollment with passphrase-protected
+  opaque backup and cross-device recovery.
+- Add encrypted resource member aggregation, signed envelope provisioning,
+  recipient-only envelope reads, and encrypted invitation acceptance.
+- Expose published key-access policy and enrollment state through the public
+  application client.
+
 ## 0.1.0-rc.2
 
 - Keep the npm package page intentionally free of repository README content.

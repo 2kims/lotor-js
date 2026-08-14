@@ -34,6 +34,8 @@ try {
     "dist/decode.js",
     "dist/index.d.ts",
     "dist/index.js",
+    "dist/key-access.d.ts",
+    "dist/key-access.js",
     "dist/transport.d.ts",
     "dist/transport.js",
     "dist/types.d.ts",

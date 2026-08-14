@@ -23,5 +23,12 @@ export type {
   PublicApplicationConfiguration,
   PublicApplicationPricing,
   TokenStore,
+  EnrollSubjectKeyInput,
+  SubjectKeyEnrollment,
+  SubjectKeyMutation,
+  ResourceGrantMutation,
+  ResourceMember,
+  EncryptedInvitationMutation,
 } from "./types.js";
 export { MemoryTokenStore } from "./types.js";
+export { createSubjectKeyRegistration, unlockSubjectKeyBackup, createResourceEnvelope, unwrapResourceEnvelope, type CreateSubjectKeyRegistrationInput, type DeviceKeyMaterial, type SubjectKeyRecord, type SubjectKeyRegistrationRequest, type ResourceProvisioningMember, type CreateResourceEnvelopeInput, type ResourceEnvelopeRequest, type EncryptedResourceEnvelope } from "./key-access.js";
