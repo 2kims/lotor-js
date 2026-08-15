@@ -141,6 +141,7 @@ process.stdout.write("packed client passed fake cross-origin runtime exercise\\n
     registry: "https://registry.npmjs.org/",
     provenance: true,
   });
+  assert.equal(readFileSync(join(consumer, "node_modules", "@lotor.dev", "lotor-js", "README.md")).length, 0);
   process.stdout.write(`clean packed consumer passed for ${packedManifest.name}@${packedManifest.version}\n`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });
