@@ -22,7 +22,8 @@ afterEach(() => {
 describe("root release version", () => {
   test("accepts synchronized metadata", () => {
     assert.equal(verifyRootReleaseVersion(writeVersionFiles()), "1.2.3");
-    assert.equal(verifyRootReleaseVersion(process.cwd()), "0.1.0-rc.1");
+    const packageVersion = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+    assert.equal(verifyRootReleaseVersion(process.cwd()), packageVersion);
   });
 
   test("rejects mismatches and malformed semantic versions", () => {
