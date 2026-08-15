@@ -8,7 +8,7 @@ This repository uses Release Please and npm trusted publishing. Tags, GitHub rel
 
 | Job | Environment | Permissions | Purpose |
 | --- | --- | --- | --- |
-| `release` | `release-automation` | `contents: read` for `github.token` | Uses an environment-scoped GitHub App key to create release PRs and releases. |
+| `release` | `release-automation` | `contents: read` for `github.token` | Uses the repository's 2K Bot App credentials to create release PRs and releases. |
 | `validate` | none | `contents: read` | Verifies the exact tag and `main` ancestry, installs the frozen dependency graph, and runs all SDK and release checks. |
 | `package` | none | `contents: read` | Rechecks the exact tag in a fresh runner, builds the SDK, creates one lifecycle-script-disabled tarball, and uploads it by unique artifact ID. |
 | `publish` | `npm-publish` | `actions: read`, `id-token: write` | Checks out no source, verifies the exact artifact and package policy independently, rechecks npm state, and publishes through OIDC. |
@@ -23,9 +23,16 @@ Keep both variables absent until the one-time setup is complete.
 ## One-time setup
 
 1. Create `release-automation` and `npm-publish` GitHub environments. Restrict both to the selected branch `main`.
-2. In `release-automation`, configure environment secret `NERV_OPS_PRIVATE_KEY`. Configure repository variable `NERV_OPS_CLIENT_ID` with the App Client ID.
-3. Scope the private `nerv-ops` GitHub App installation to this repository with only Contents read/write, Pull requests read/write, and required Metadata read access. It must not bypass branch protection.
-4. In npm settings for `@lotor.dev/lotor-js`, configure this trusted publisher exactly:
+2. Register the 2K Bot metadata as repository variables:
+
+   ```text
+   BOT_2K_APP_ID=4600682
+   BOT_2K_CLIENT_ID=Iv23ct8NTwJ8yiM1WYo3
+   ```
+
+3. Store the 2K Bot private key as repository secret `BOT_2K_KEY`. The workflow policy permits only the `release` job to reference this secret.
+4. Scope the 2K Bot GitHub App installation to this repository with only Contents read/write, Pull requests read/write, and required Metadata read access. It must not bypass branch protection.
+5. In npm settings for `@lotor.dev/lotor-js`, configure this trusted publisher exactly:
 
    ```text
    Owner:       2kims
@@ -34,19 +41,20 @@ Keep both variables absent until the one-time setup is complete.
    Environment: npm-publish
    ```
 
-5. Store no secrets in `npm-publish`. Do not configure `NPM_TOKEN` or another token fallback.
-6. Protect `main`, require the `Validate PR title` and `Test` checks, enable squash merging and auto-merge, and protect `v*` tags from updates or deletion.
-7. Verify the environment and secret names without printing secret values:
+6. Store no secrets in `npm-publish`. Do not configure `NPM_TOKEN` or another token fallback.
+7. Protect `main`, require the `Validate PR title` and `Test` checks, enable squash merging and auto-merge, and protect `v*` tags from updates or deletion.
+8. Verify the environment, variable, and secret names without printing secret values:
 
    ```bash
-   gh secret list --repo 2kims/lotor-js --env release-automation
+   gh secret list --repo 2kims/lotor-js
+   gh variable list --repo 2kims/lotor-js
    gh secret list --repo 2kims/lotor-js --env npm-publish
    gh api repos/2kims/lotor-js/environments/release-automation
    gh api repos/2kims/lotor-js/environments/npm-publish
    npm view @lotor.dev/lotor-js version dist-tags --json
    ```
 
-8. Open the gates in order only after the checks above pass:
+9. Open the gates in order only after the checks above pass:
 
    ```bash
    gh variable set NPM_TRUSTED_PUBLISHING_READY --repo 2kims/lotor-js --body true

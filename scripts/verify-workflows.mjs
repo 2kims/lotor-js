@@ -60,8 +60,9 @@ export function verifyWorkflowSources({ pullRequest, release, packageJson, allWo
   const validate = jobBlock(release, "validate");
   const packageJob = jobBlock(release, "package");
   const publish = jobBlock(release, "publish");
-  includes(releaseJob, "environment: release-automation", "GitHub App key must be environment-scoped");
-  includes(releaseJob, "client-id: ${{ vars.NERV_OPS_CLIENT_ID }}", "GitHub App must use its Client ID");
+  includes(releaseJob, "environment: release-automation", "release automation must use its protected environment");
+  includes(releaseJob, "client-id: ${{ vars.BOT_2K_CLIENT_ID }}", "2K Bot must use its registered Client ID");
+  includes(releaseJob, "private-key: ${{ secrets.BOT_2K_KEY }}", "2K Bot must use the registered private-key secret");
   invariant(occurrences(release, /\bsecrets(?:\.|\[)/g) === 1, "only release automation may reference one secret");
 
   invariant(!/\benvironment:/.test(validate), "validation must not enter a protected environment");
