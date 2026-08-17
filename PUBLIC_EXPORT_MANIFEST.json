@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "target": "browser",
-  "source_commit": "e764198c2369289b135b04cde4f499d3164db3f1",
+  "source_commit": "11b99974c61b7e3ae9360e6c556c5503245ac163",
   "version": "0.1.1-rc.6",
   "files": [
     {
@@ -14,7 +14,7 @@
     },
     {
       "path": ".github/workflows/release.yml",
-      "sha256": "5271400efd9b41946eb35cc57d2dc18e48538a65b98b6d269d7b44cb5f586cea"
+      "sha256": "769cd2bca5b1ce12cd6e227e9e8d30d3556a08619a2d1ae013c31748ebc50181"
     },
     {
       "path": ".gitignore",
@@ -94,7 +94,7 @@
     },
     {
       "path": "scripts/verify-workflows.mjs",
-      "sha256": "1b5dfbe5b9606b69f699aa0313b9b8dec974a30c5fe4442ff7d3d7cd9467343f"
+      "sha256": "0f492859f78c567f2cce36a498be420e2a8caa8d7b673acf1261c9ab307bb5a1"
     },
     {
       "path": "SECURITY.md",
@@ -142,7 +142,7 @@
     },
     {
       "path": "tests/tooling/workflows.node.mjs",
-      "sha256": "0a8144d9e32cea59a2e908243c239a666df519f3ae1adfb5a68ef87aaae568c4"
+      "sha256": "f44f29e1879f40ece735a9046f0a42b5c003dd6afb4d507856df7e3a320760ed"
     },
     {
       "path": "tsconfig.json",

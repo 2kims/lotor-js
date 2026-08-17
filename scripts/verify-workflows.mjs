@@ -82,12 +82,16 @@ export function verifyWorkflowSources({ pullRequest, release, packageJson, allWo
 
   invariant(!/\benvironment:/.test(packageJob), "packaging must not enter a protected environment");
   invariant(!/\bid-token:/.test(packageJob), "packaging must not receive OIDC");
+  includes(packageJob, "if: ${{ always() && needs.validate.result == 'success' && needs.validate.outputs.should_publish == 'true'",
+    "recovery packaging must override skipped-ancestor propagation and require validated publication intent");
   includes(packageJob, "fetch-depth: 0", "packaging must fetch complete history for ancestry verification");
   invariant(!/\bgit fetch\b/.test(packageJob), "packaging must use the credential-free complete checkout without a later fetch");
   includes(packageJob, "pnpm install --frozen-lockfile", "packaging must use the frozen lockfile");
   includes(packageJob, "npm pack --ignore-scripts --json --pack-destination", "packaging must disable lifecycle scripts");
 
   includes(publish, "environment: sdk-release", "publisher must preserve the registered npm trusted-publishing environment");
+  includes(publish, "if: ${{ always() && needs.validate.result == 'success' && needs.package.result == 'success'",
+    "recovery publishing must override skipped-ancestor propagation and require successful validation and packaging");
   includes(publish, "runs-on: ubuntu-latest", "npm OIDC publisher must use a GitHub-hosted runner");
   invariant(!publish.includes("USE_BLACKSMITH") && !publish.includes("blacksmith-"), "npm OIDC publisher must never use a self-hosted runner");
   includes(publish, "      actions: read\n      id-token: write", "publisher must receive only artifact read and OIDC");

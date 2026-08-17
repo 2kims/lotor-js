@@ -306,7 +306,10 @@ jobs:
   package:
     name: Package exact release source
     needs: validate
-    if: ${{ needs.validate.result == 'success' && needs.validate.outputs.should_publish == 'true' && vars.RELEASE_AUTOMATION_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && github.ref == 'refs/heads/main' }}
+    # Recovery intentionally skips the release job. GitHub propagates that
+    # skipped ancestor unless every downstream recovery condition starts with
+    # always(), even though validate itself completed successfully.
+    if: ${{ always() && needs.validate.result == 'success' && needs.validate.outputs.should_publish == 'true' && vars.RELEASE_AUTOMATION_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
@@ -458,7 +461,7 @@ jobs:
     needs:
       - validate
       - package
-    if: ${{ needs.package.result == 'success' && vars.RELEASE_AUTOMATION_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && github.ref == 'refs/heads/main' }}
+    if: ${{ always() && needs.validate.result == 'success' && needs.package.result == 'success' && vars.RELEASE_AUTOMATION_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && github.ref == 'refs/heads/main' }}
     environment: sdk-release
     # npm trusted publishing currently rejects self-hosted runners. Validation
     # and packaging may use Blacksmith, but the credentialless OIDC exchange
