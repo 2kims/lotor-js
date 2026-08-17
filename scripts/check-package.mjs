@@ -17,7 +17,7 @@ function run(command, args, cwd = temporary) {
 try {
   const packed = JSON.parse(execFileSync(
     "npm",
-    ["pack", "--json", "--pack-destination", temporary],
+    ["pack", "--ignore-scripts", "--json", "--pack-destination", temporary],
     { cwd: root, encoding: "utf8" },
   ));
   assert.equal(packed.length, 1);
@@ -34,6 +34,8 @@ try {
     "dist/decode.js",
     "dist/index.d.ts",
     "dist/index.js",
+    "dist/key-access.d.ts",
+    "dist/key-access.js",
     "dist/transport.d.ts",
     "dist/transport.js",
     "dist/types.d.ts",
@@ -130,12 +132,17 @@ process.stdout.write("packed client passed fake cross-origin runtime exercise\\n
   run(join(root, "node_modules", ".bin", "vite"), ["build", "--outDir", "dist-vite"], consumer);
   run(process.execPath, ["runtime.mjs"], consumer);
 
-  const packedManifest = JSON.parse(readFileSync(join(consumer, "node_modules", "@lotor.dev", "lotor-js", "package.json"), "utf8"));
   const sourceManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const packedManifest = JSON.parse(readFileSync(join(consumer, "node_modules", "@lotor.dev", "lotor-js", "package.json"), "utf8"));
   assert.equal(packedManifest.name, "@lotor.dev/lotor-js");
   assert.equal(packedManifest.version, sourceManifest.version);
   assert.equal(packedManifest.license, "Apache-2.0");
-  assert.equal(packedManifest.private, process.env.LOTOR_PUBLIC_RELEASE === "1" ? undefined : true);
+  assert.equal(packedManifest.private, sourceManifest.private);
+  assert.deepEqual(packedManifest.publishConfig, {
+    access: "public",
+    registry: "https://registry.npmjs.org/",
+    provenance: true,
+  });
   if (process.env.LOTOR_PUBLIC_RELEASE === "1") {
     assert.equal(readFileSync(join(consumer, "node_modules", "@lotor.dev", "lotor-js", "README.md")).length, 0);
   }
