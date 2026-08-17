@@ -1,0 +1,120 @@
+name: Pull Request
+
+on:
+  pull_request:
+    types:
+      - labeled
+      - converted_to_draft
+
+permissions:
+  contents: read
+
+jobs:
+  title_github:
+    name: Validate PR title (GitHub runner attempt)
+    if: ${{ github.event.action == 'labeled' && github.event.label.name == 'ci:run' && github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 5
+    outputs:
+      failed: ${{ steps.runner-result.outputs.failed }}
+    steps: &title_steps
+      - name: Check Conventional Commit format
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          node <<'NODE'
+          const title = process.env.PR_TITLE ?? "";
+          const conventionalTitle = /^(feat|fix|perf|revert|docs|style|refactor|test|chore|release)(\([a-z0-9][a-z0-9._/-]*\))?!?: \S.*$/;
+          if (!conventionalTitle.test(title)) {
+            console.error(`Invalid PR title: ${title}`);
+            console.error("Use: <type>(optional-scope): description");
+            process.exit(1);
+          }
+          NODE
+
+      - name: Record runner result
+        id: runner-result
+        if: always()
+        run: echo "failed=${{ job.status == 'failure' }}" >> "$GITHUB_OUTPUT"
+
+  title:
+    name: Validate PR title
+    needs: title_github
+    if: ${{ always() && github.event.action == 'labeled' && github.event.label.name == 'ci:run' && github.event.pull_request.draft == false && needs.title_github.outputs.failed != 'false' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps: *title_steps
+
+  test_github:
+    name: Test (GitHub runner attempt)
+    if: ${{ github.event.action == 'labeled' && github.event.label.name == 'ci:run' && github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 25
+    outputs:
+      failed: ${{ steps.runner-result.outputs.failed }}
+    steps: &test_steps
+      - name: Check out repository without persisted credentials
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify release metadata
+        run: pnpm verify:release-version
+
+      - name: Run tooling policy tests
+        run: pnpm test:tooling
+
+      - name: Run SDK checks
+        run: |
+          pnpm check:browser
+          pnpm test
+          pnpm api:check
+          pnpm package:check
+
+      - name: Verify workflow trust boundaries
+        run: pnpm verify:workflows
+
+      - name: Require checks to leave tracked source unchanged
+        run: git diff --exit-code
+
+      - name: Lint GitHub Actions workflows
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/$archive"
+          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"
+
+      - name: Record runner result
+        id: runner-result
+        if: always()
+        run: echo "failed=${{ job.status == 'failure' }}" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test
+    needs: test_github
+    if: ${{ always() && github.event.action == 'labeled' && github.event.label.name == 'ci:run' && github.event.pull_request.draft == false && needs.test_github.outputs.failed != 'false' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 25
+    steps: *test_steps
