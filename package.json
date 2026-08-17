@@ -1,6 +1,6 @@
 {
   "name": "@lotor.dev/lotor-js",
-  "version": "0.1.0-rc.6",
+  "version": "0.1.1-rc.6",
   "description": "Framework-independent browser client for Lotor's public application API",
   "license": "Apache-2.0",
   "type": "module",
