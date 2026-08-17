@@ -462,7 +462,10 @@ jobs:
       - package
     if: ${{ needs.package.result == 'success' && vars.RELEASE_AUTOMATION_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && github.ref == 'refs/heads/main' }}
     environment: sdk-release
-    runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    # npm trusted publishing currently rejects self-hosted runners. Validation
+    # and packaging may use Blacksmith, but the credentialless OIDC exchange
+    # must remain on a GitHub-hosted runner.
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       actions: read

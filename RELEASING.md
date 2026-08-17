@@ -11,7 +11,7 @@ This repository uses Release Please and npm trusted publishing. Tags, GitHub rel
 | `release` | none | `contents: read` for `github.token` | Uses the repository's 2K Bot App credentials to create release PRs and releases. |
 | `validate` | none | `contents: read` | Verifies the exact tag and `main` ancestry, installs the frozen dependency graph, and runs all SDK and release checks. |
 | `package` | none | `contents: read` | Rechecks the exact tag in a fresh runner, builds the SDK, creates one lifecycle-script-disabled tarball, and uploads it by unique artifact ID. |
-| `publish` | `sdk-release` | `actions: read`, `id-token: write` | Checks out no source, verifies the exact artifact and package policy independently, rechecks npm state, and publishes through OIDC. |
+| `publish` | `sdk-release` | `actions: read`, `id-token: write` | Runs only on a GitHub-hosted runner, checks out no source, verifies the exact artifact and package policy independently, rechecks npm state, and publishes through OIDC. |
 
 The GitHub App key and npm OIDC permission never coexist. All four jobs fail closed unless both repository variables equal the exact lowercase value `true`:
 
@@ -66,14 +66,19 @@ Keep both variables absent until the one-time setup is complete.
 
 Release jobs default to GitHub-hosted runners. If the private-repository minute
 allowance is exhausted, first grant the Blacksmith GitHub App access to this
-repository, then switch the release pipeline explicitly:
+repository, then switch release automation, validation, and packaging
+explicitly:
 
 ```bash
 gh variable set USE_BLACKSMITH --repo 2kims/lotor-js --body true
 ```
 
-Delete `USE_BLACKSMITH` to restore the GitHub-hosted default. Values other than
-the exact lowercase string `true` do not select Blacksmith.
+The final `publish` job always remains on `ubuntu-latest`: npm trusted
+publishing does not accept self-hosted runners. Consequently, exhausted GitHub
+runner allowance can delay publication even after Blacksmith completes the
+expensive validation and packaging jobs. Delete `USE_BLACKSMITH` to restore the
+GitHub-hosted default for all earlier jobs. Values other than the exact
+lowercase string `true` do not select Blacksmith.
 
 ## Normal releases
 

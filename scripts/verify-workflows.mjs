@@ -54,8 +54,8 @@ export function verifyWorkflowSources({ pullRequest, release, packageJson, allWo
 
   includes(release, "permissions: {}", "release workflow must deny permissions by default");
   const runnerSelection = "runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}";
-  invariant(occurrences(release, new RegExp(runnerSelection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) === 4,
-    "every release job must default to GitHub and select only the approved Blacksmith runner when explicitly enabled");
+  invariant(occurrences(release, new RegExp(runnerSelection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) === 3,
+    "release automation, validation, and packaging must default to GitHub and select only the approved Blacksmith runner when explicitly enabled");
   for (const gate of ["vars.RELEASE_AUTOMATION_ENABLED == 'true'", "vars.NPM_TRUSTED_PUBLISHING_READY == 'true'", "github.ref == 'refs/heads/main'"]) {
     invariant(occurrences(release, new RegExp(gate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) === 4, `every release job must use gate: ${gate}`);
   }
@@ -82,6 +82,8 @@ export function verifyWorkflowSources({ pullRequest, release, packageJson, allWo
   includes(packageJob, "npm pack --ignore-scripts --json --pack-destination", "packaging must disable lifecycle scripts");
 
   includes(publish, "environment: sdk-release", "publisher must preserve the registered npm trusted-publishing environment");
+  includes(publish, "runs-on: ubuntu-latest", "npm OIDC publisher must use a GitHub-hosted runner");
+  invariant(!publish.includes("USE_BLACKSMITH") && !publish.includes("blacksmith-"), "npm OIDC publisher must never use a self-hosted runner");
   includes(publish, "      actions: read\n      id-token: write", "publisher must receive only artifact read and OIDC");
   invariant(!/actions\/checkout@/.test(publish), "publisher must not check out source");
   invariant(!/\bpnpm\b/.test(publish), "publisher must not execute project tooling");

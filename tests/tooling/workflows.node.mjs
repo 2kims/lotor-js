@@ -40,7 +40,7 @@ describe("release workflow trust boundaries", () => {
     })), /every release job must use gate/);
     assert.throws(() => verifyWorkflowSources(sources({
       release: release.replace("runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}", "runs-on: unreviewed-runner"),
-    })), /every release job must default to GitHub/);
+    })), /release automation, validation, and packaging must default to GitHub/);
   });
 
   test("rejects source checkout or secrets in the OIDC publisher", () => {
@@ -50,6 +50,9 @@ describe("release workflow trust boundaries", () => {
     assert.throws(() => verifyWorkflowSources(sources({
       release: replaceOnce(release, "          DOWNLOAD_STEP_PATH: ${{ steps.download.outputs.download_path }}", "          DOWNLOAD_STEP_PATH: ${{ steps.download.outputs.download_path }}\n          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}"),
     })), /only release automation may reference one secret|must not reference secrets/);
+    assert.throws(() => verifyWorkflowSources(sources({
+      release: replaceOnce(release, "    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    permissions:\n      actions: read", "    runs-on: blacksmith-2vcpu-ubuntu-2404\n    timeout-minutes: 10\n    permissions:\n      actions: read"),
+    })), /must use a GitHub-hosted runner/);
   });
 
   test("rejects an unreviewed workflow", () => {

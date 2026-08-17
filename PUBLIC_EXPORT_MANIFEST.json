@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "target": "browser",
-  "source_commit": "81c5a19ce175fe58f68f47870ef7053abfff2b18",
+  "source_commit": "606d6ca195e4e5fa350f84959828b021d25e8677",
   "version": "0.1.0-rc.5",
   "files": [
     {
@@ -14,7 +14,7 @@
     },
     {
       "path": ".github/workflows/release.yml",
-      "sha256": "63c715a9a73bfb9179602a45a7506ac3d6a4e5dca5348778f46f4df95f5f77f7"
+      "sha256": "701a568728569403b108b60639819aedb4f73442b5a5fb89eeba9659f5961595"
     },
     {
       "path": ".gitignore",
@@ -74,7 +74,7 @@
     },
     {
       "path": "RELEASING.md",
-      "sha256": "c1a28548b698b7fc474868a8cbffa95092edad7993f2046f5b5fbdcf185aec9e"
+      "sha256": "ff0d618ae97a0f185e3c5df4c77fe24f17e2ab5799e980cb082b079a15972c83"
     },
     {
       "path": "scripts/check-api.mjs",
@@ -94,7 +94,7 @@
     },
     {
       "path": "scripts/verify-workflows.mjs",
-      "sha256": "e1c6e47e21de12a2ee28977afeca79aa62f1085689fa66498325ddbc35403057"
+      "sha256": "689895ce6af70eba3bc454dff42bdcbbc3da527d68fecd7db6539ad141986d96"
     },
     {
       "path": "SECURITY.md",
@@ -126,7 +126,7 @@
     },
     {
       "path": "tests/client.test.ts",
-      "sha256": "17deb5efa1806b1885df975517f540b019425ea34955b6e6c4eecd09ac8d70b2"
+      "sha256": "23d0fb8e120572fdd2b502014c7ef242a552c84d3025832b77807156c8e9b8e9"
     },
     {
       "path": "tests/key-access.test.ts",
@@ -142,7 +142,7 @@
     },
     {
       "path": "tests/tooling/workflows.node.mjs",
-      "sha256": "2458f14e98c2dbf955c5bebafef237495623dc4847bdeb9d8cf1e5481629a83e"
+      "sha256": "3b852488fd91353dbfedb1a7f186f20edd7894f8165023215c210d3a00d29016"
     },
     {
       "path": "tsconfig.json",

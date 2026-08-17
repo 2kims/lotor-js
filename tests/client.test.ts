@@ -46,6 +46,7 @@ function fixtureFetch(requests: RecordedRequest[]): BrowserFetch {
       encryption: { required: true, key_resource: "vault:one", ready: true }, ready: true, idempotent: false,
     });
     if (url.endsWith("/resources/vault%3Aone/collaborators?view=effective")) return response({ resource: "vault:one", collaborators: [{ kind: "invitation", id: "cinv_1", link_id: "lnk_1", relations: ["member"], status: "pending_acceptance", recipient: { type: "email", display: "kim@example.com" }, expires_at: 123 }], next_cursor: null });
+    if (url.endsWith("/resources/personal-bcc69c42b94e9d215af82ddb/collaborators?view=effective")) return response({ resource: "personal-bcc69c42b94e9d215af82ddb", collaborators: [{ kind: "invitation", id: "cinv_1", link_id: "lnk_1", relations: ["member"], status: "pending_acceptance", recipient: { type: "email", display: "kim@example.com" }, expires_at: 123 }], next_cursor: null });
     if (url.includes("/resources/vault%3Aone/collaborators?view=effective&email=kim%40example.com")) return response({ resource: "vault:one", collaborators: [{ kind: "user", id: "user:kim", email: "kim@example.com", relations: ["member"], status: "active", access: { direct: false, paths: [{ type: "group", relation: "member", group: "group:engineering", subject_relation: "member", via: [{ resource: "group:engineering", subject_relation: "member" }] }] } }], next_cursor: null });
     if (url.endsWith("/resources/search")) return response({ resources: [{ resource: "vault:one", resource_type: "vault", display_name: "Production", status: "active", parent: { resource: "project:platform", resource_type: "project", display_name: "Platform" }, collaborator_matches: [{ kind: "user", id: "user:kim", email: "kim@example.com", relations: ["member"], status: "active", access: { direct: false, paths: [{ type: "group", relation: "member", group: "group:engineering", subject_relation: "member", via: [{ resource: "group:engineering", subject_relation: "member" }] }] } }] }], next_cursor: "next_search" });
     if (url.endsWith("/resources/group%3Aincident-commanders") && init.method === "PUT") return response({ id: "res_group", resource: "group:incident-commanders", resource_type: "group", display_name: "Incident Commanders", parent: "org:acme", status: "active" });
@@ -328,14 +329,14 @@ test("bootstraps and sends encrypted links with an application-provided resource
   assert.deepEqual(provisionedKey, resourceKey);
 });
 
-test("lists managed collaborator link identity and accepts resource invitations", async () => {
+test("uses URL-safe organization IDs for collaborator calls and accepts resource invitations", async () => {
   const tokenStore = new MemoryTokenStore(); tokenStore.setToken("token");
   const requests: RecordedRequest[] = [];
   const sdk = client(requests, tokenStore);
-  const listed = await sdk.resourceCollaborators("vault:one", { view: "effective" });
+  const listed = await sdk.resourceCollaborators("personal-bcc69c42b94e9d215af82ddb", { view: "effective" });
   assert.equal(listed.collaborators[0]?.linkId, "lnk_1");
   assert.equal((await sdk.acceptResourceInvitation("ticket_1")).status, "active");
-  assert.equal(requests[0]?.url, "https://api.lotor.test/v1/public/applications/signalbox_web/resources/vault%3Aone/collaborators?view=effective");
+  assert.equal(requests[0]?.url, "https://api.lotor.test/v1/public/applications/signalbox_web/resources/personal-bcc69c42b94e9d215af82ddb/collaborators?view=effective");
   assert.deepEqual(JSON.parse(String(requests[1]?.init.body)), { ticket: "ticket_1" });
 });
 
@@ -422,7 +423,7 @@ test("rejects an account invitation response that leaks an internal typed resour
   const tokenStore = new MemoryTokenStore(); tokenStore.setToken("token");
   const sdk = new LotorBrowserClient({
     baseUrl: "https://api.lotor.test", clientId: "signalbox_web", tokenStore,
-    fetch: async () => response({ invitations: [{ id: "cinv_1", resource: { id: "org:personal-secret", type: "organization", name: "Personal Workspace" }, relation: "member", status: "pending_acceptance", expires_at: 123, encryption_required: false }], next_cursor: null }),
+    fetch: async () => response({ invitations: [{ id: "cinv_1", resource: { id: "organization:internal-secret", type: "organization", name: "Personal Workspace" }, relation: "member", status: "pending_acceptance", expires_at: 123, encryption_required: false }], next_cursor: null }),
   });
   await assert.rejects(sdk.accountInvitations(), /internal resource reference/);
 });
