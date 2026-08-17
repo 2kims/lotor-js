@@ -71,6 +71,23 @@ describe("release workflow trust boundaries", () => {
     })), /without an extra argument separator/);
   });
 
+  test("rejects recovery jobs that inherit the intentionally skipped release ancestor", () => {
+    assert.throws(() => verifyWorkflowSources(sources({
+      release: replaceOnce(
+        release,
+        "if: ${{ always() && needs.validate.result == 'success' && needs.validate.outputs.should_publish == 'true'",
+        "if: ${{ needs.validate.result == 'success' && needs.validate.outputs.should_publish == 'true'",
+      ),
+    })), /recovery packaging must override skipped-ancestor propagation/);
+    assert.throws(() => verifyWorkflowSources(sources({
+      release: replaceOnce(
+        release,
+        "if: ${{ always() && needs.validate.result == 'success' && needs.package.result == 'success'",
+        "if: ${{ needs.package.result == 'success'",
+      ),
+    })), /recovery publishing must override skipped-ancestor propagation/);
+  });
+
   test("rejects an unreviewed workflow", () => {
     assert.throws(() => verifyWorkflowSources(sources({
       allWorkflows: [["pull-request.yml", pullRequest], ["release.yml", release], ["extra.yml", "name: Extra\n"]],
