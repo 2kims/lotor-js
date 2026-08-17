@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "target": "browser",
-  "source_commit": "f722139b06cb8b9f8525eb309586a97b938ce191",
-  "version": "0.1.0-rc.6",
+  "source_commit": "e764198c2369289b135b04cde4f499d3164db3f1",
+  "version": "0.1.1-rc.6",
   "files": [
     {
       "path": ".github/CODEOWNERS",
@@ -14,7 +14,7 @@
     },
     {
       "path": ".github/workflows/release.yml",
-      "sha256": "d507b37178419a571012801a179a4f74d7c492a33271b2180bdb63f160a87dbc"
+      "sha256": "5271400efd9b41946eb35cc57d2dc18e48538a65b98b6d269d7b44cb5f586cea"
     },
     {
       "path": ".gitignore",
@@ -22,7 +22,7 @@
     },
     {
       "path": ".release-please-manifest.json",
-      "sha256": "7d9d398c67c8971ce7d7e2232291c257d0804ff6be1a2487f6923842ffa585b3"
+      "sha256": "9da984c38c0c7d9a8aab928193488ede2d67511108361af2d1a46cdede101cfc"
     },
     {
       "path": "api/client.d.ts",
@@ -46,7 +46,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "216050a676e7897607c44df8dc6c08e60f4b03a4469018eef44ad475af8c67c7"
+      "sha256": "e007227b4b00f83769e115c44175f7998032be4b30e4d702fb0ffc295042e324"
     },
     {
       "path": "LICENSE",
@@ -58,7 +58,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "6315e8da39d7b20e808e3d06d403831a5d74306cdf902148bad6dfb0ffb481bd"
+      "sha256": "94633bc1a02429296c976a45ffc63fde51a6f1d9e9b5c46109f6c2d6cdb6d998"
     },
     {
       "path": "pnpm-lock.yaml",
@@ -94,7 +94,7 @@
     },
     {
       "path": "scripts/verify-workflows.mjs",
-      "sha256": "15453200ad8de4202ecdaa28e03b32a14386a7fa142e1dfbcf021a59313e562d"
+      "sha256": "1b5dfbe5b9606b69f699aa0313b9b8dec974a30c5fe4442ff7d3d7cd9467343f"
     },
     {
       "path": "SECURITY.md",
@@ -142,7 +142,7 @@
     },
     {
       "path": "tests/tooling/workflows.node.mjs",
-      "sha256": "39a4155eccab996dff4a40e46b34b1453bcffc14d255e3be58ea21e3cdf86e05"
+      "sha256": "0a8144d9e32cea59a2e908243c239a666df519f3ae1adfb5a68ef87aaae568c4"
     },
     {
       "path": "tsconfig.json",

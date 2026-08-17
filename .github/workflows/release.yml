@@ -217,7 +217,7 @@ jobs:
           EXPECTED_VERSION: ${{ steps.target.outputs.version }}
         run: |
           pnpm test:tooling
-          pnpm verify:release-version -- --expected "$EXPECTED_VERSION"
+          pnpm verify:release-version --expected "$EXPECTED_VERSION"
           pnpm check:browser
           pnpm test
           pnpm api:check
