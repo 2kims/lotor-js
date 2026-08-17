@@ -23,7 +23,7 @@ jobs:
     name: Create release PR or GitHub release
     if: ${{ vars.RELEASE_AUTOMATION_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tag == '')) }}
     environment: release-automation
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -86,7 +86,7 @@ jobs:
     name: Validate exact release source
     needs: release
     if: ${{ always() && vars.RELEASE_AUTOMATION_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && github.ref == 'refs/heads/main' && ((needs.release.result == 'success' && needs.release.outputs.release_created == 'true') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -309,7 +309,7 @@ jobs:
     name: Package exact release source
     needs: validate
     if: ${{ needs.validate.result == 'success' && needs.validate.outputs.should_publish == 'true' && vars.RELEASE_AUTOMATION_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -463,7 +463,7 @@ jobs:
       - package
     if: ${{ needs.package.result == 'success' && vars.RELEASE_AUTOMATION_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && github.ref == 'refs/heads/main' }}
     environment: npm-publish
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       actions: read

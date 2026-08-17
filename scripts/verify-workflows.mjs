@@ -50,6 +50,9 @@ export function verifyWorkflowSources({ pullRequest, release, packageJson, allWo
   includes(pullRequest, "ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757", "Actionlint checksum must remain pinned");
 
   includes(release, "permissions: {}", "release workflow must deny permissions by default");
+  const runnerSelection = "runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}";
+  invariant(occurrences(release, new RegExp(runnerSelection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) === 4,
+    "every release job must default to GitHub and select only the approved Blacksmith runner when explicitly enabled");
   for (const gate of ["vars.RELEASE_AUTOMATION_ENABLED == 'true'", "vars.NPM_TRUSTED_PUBLISHING_READY == 'true'", "github.ref == 'refs/heads/main'"]) {
     invariant(occurrences(release, new RegExp(gate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) === 4, `every release job must use gate: ${gate}`);
   }

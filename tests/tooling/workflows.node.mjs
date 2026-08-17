@@ -38,6 +38,9 @@ describe("release workflow trust boundaries", () => {
     assert.throws(() => verifyWorkflowSources(sources({
       release: release.replace("vars.NPM_TRUSTED_PUBLISHING_READY == 'true' && ", ""),
     })), /every release job must use gate/);
+    assert.throws(() => verifyWorkflowSources(sources({
+      release: release.replace("runs-on: ${{ vars.USE_BLACKSMITH == 'true' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}", "runs-on: unreviewed-runner"),
+    })), /every release job must default to GitHub/);
   });
 
   test("rejects source checkout or secrets in the OIDC publisher", () => {

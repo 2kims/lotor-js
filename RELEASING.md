@@ -43,6 +43,10 @@ Keep both variables absent until the one-time setup is complete.
 
 6. Store no secrets in `npm-publish`. Do not configure `NPM_TOKEN` or another token fallback.
 7. Protect `main`, require the `Validate PR title` and `Test` checks, enable squash merging and auto-merge, and protect `v*` tags from updates or deletion.
+   Keep checkpoint PRs in draft. Once a PR is locally validated and ready for
+   review, add the one-shot `ci:run` label. PR checks attempt GitHub-hosted
+   runners first and fall back to Blacksmith only if that attempt cannot
+   complete successfully. Pushes alone do not run PR CI.
 8. Verify the environment, variable, and secret names without printing secret values:
 
    ```bash
@@ -60,6 +64,17 @@ Keep both variables absent until the one-time setup is complete.
    gh variable set NPM_TRUSTED_PUBLISHING_READY --repo 2kims/lotor-js --body true
    gh variable set RELEASE_AUTOMATION_ENABLED --repo 2kims/lotor-js --body true
    ```
+
+Release jobs default to GitHub-hosted runners. If the private-repository minute
+allowance is exhausted, first grant the Blacksmith GitHub App access to this
+repository, then switch the release pipeline explicitly:
+
+```bash
+gh variable set USE_BLACKSMITH --repo 2kims/lotor-js --body true
+```
+
+Delete `USE_BLACKSMITH` to restore the GitHub-hosted default. Values other than
+the exact lowercase string `true` do not select Blacksmith.
 
 ## Normal releases
 
