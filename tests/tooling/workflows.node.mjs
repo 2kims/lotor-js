@@ -61,6 +61,16 @@ describe("release workflow trust boundaries", () => {
     })), /credential-free complete checkout/);
   });
 
+  test("rejects an invalid release-version verifier invocation", () => {
+    assert.throws(() => verifyWorkflowSources(sources({
+      release: replaceOnce(
+        release,
+        'pnpm verify:release-version --expected "$EXPECTED_VERSION"',
+        'pnpm verify:release-version -- --expected "$EXPECTED_VERSION"',
+      ),
+    })), /without an extra argument separator/);
+  });
+
   test("rejects an unreviewed workflow", () => {
     assert.throws(() => verifyWorkflowSources(sources({
       allWorkflows: [["pull-request.yml", pullRequest], ["release.yml", release], ["extra.yml", "name: Extra\n"]],

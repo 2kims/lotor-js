@@ -76,6 +76,8 @@ export function verifyWorkflowSources({ pullRequest, release, packageJson, allWo
   includes(validate, "fetch-depth: 0", "validation must fetch complete history for ancestry verification");
   invariant(!/\bgit fetch\b/.test(validate), "validation must use the credential-free complete checkout without a later fetch");
   includes(validate, "pnpm install --frozen-lockfile", "validation must use the frozen lockfile");
+  includes(validate, "pnpm verify:release-version --expected \"$EXPECTED_VERSION\"",
+    "validation must pass the expected version through pnpm without an extra argument separator");
   includes(validate, "pnpm package:check", "validation must exercise the package as a consumer");
 
   invariant(!/\benvironment:/.test(packageJob), "packaging must not enter a protected environment");
