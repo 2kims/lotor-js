@@ -3,21 +3,22 @@ name: Pull Request
 on:
   pull_request:
     types:
-      - opened
-      - edited
-      - synchronize
-      - reopened
-      - ready_for_review
+      - labeled
+      - converted_to_draft
 
 permissions:
   contents: read
 
 jobs:
-  title:
-    name: Validate PR title
+  title_github:
+    name: Validate PR title (GitHub runner attempt)
+    if: ${{ github.event.action == 'labeled' && github.event.label.name == 'ci:run' && github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 5
-    steps:
+    outputs:
+      failed: ${{ steps.runner-result.outputs.failed }}
+    steps: &title_steps
       - name: Check Conventional Commit format
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -32,11 +33,28 @@ jobs:
           }
           NODE
 
-  test:
-    name: Test
+      - name: Record runner result
+        id: runner-result
+        if: always()
+        run: echo "failed=${{ job.status == 'failure' }}" >> "$GITHUB_OUTPUT"
+
+  title:
+    name: Validate PR title
+    needs: title_github
+    if: ${{ always() && github.event.action == 'labeled' && github.event.label.name == 'ci:run' && github.event.pull_request.draft == false && needs.title_github.outputs.failed != 'false' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps: *title_steps
+
+  test_github:
+    name: Test (GitHub runner attempt)
+    if: ${{ github.event.action == 'labeled' && github.event.label.name == 'ci:run' && github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 25
-    steps:
+    outputs:
+      failed: ${{ steps.runner-result.outputs.failed }}
+    steps: &test_steps
       - name: Check out repository without persisted credentials
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -87,3 +105,16 @@ jobs:
           echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
           tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint"
+
+      - name: Record runner result
+        id: runner-result
+        if: always()
+        run: echo "failed=${{ job.status == 'failure' }}" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test
+    needs: test_github
+    if: ${{ always() && github.event.action == 'labeled' && github.event.label.name == 'ci:run' && github.event.pull_request.draft == false && needs.test_github.outputs.failed != 'false' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 25
+    steps: *test_steps
