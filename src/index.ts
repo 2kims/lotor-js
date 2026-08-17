@@ -44,6 +44,7 @@ export type {
   LinkSendInput,
   LinkMutation,
   LinkSendResult,
+  SubjectKeyCredentials,
   EnsureEncryptedResourceInput,
   EnsureEncryptedResourceResult,
   EncryptedResourceLinkInput,

@@ -1,6 +1,6 @@
 import { BrowserTransport, LotorBrowserError, type BrowserFetch } from "./transport.js";
 import * as decode from "./decode.js";
-import { createResourceEnvelope, createSubjectKeyRegistration, unlockSubjectKeyBackup } from "./key-access.js";
+import { createResourceEnvelope, createSubjectKeyRegistration, unlockSubjectKeyBackup, type DeviceKeyMaterial } from "./key-access.js";
 import {
   MemoryTokenStore,
   type ApplicationSession,
@@ -26,6 +26,7 @@ import {
   type LinkPreflight,
   type LinkSendInput,
   type LinkSendResult,
+  type SubjectKeyCredentials,
   type EnsureEncryptedResourceInput,
   type EnsureEncryptedResourceResult,
   type EncryptedResourceLinkInput,
@@ -100,6 +101,24 @@ async function stableOwnerGrantId(resource: string, subject: string, keyId: stri
   const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", value));
   const suffix = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
   return `grant_owner_${suffix}`;
+}
+
+async function resolveSubjectKey(
+  keys: SubjectKeyRecord[],
+  credentials: SubjectKeyCredentials,
+): Promise<{ record: SubjectKeyRecord; material: DeviceKeyMaterial }> {
+  if (credentials.keyMaterial !== undefined) {
+    const record = keys.find((key) =>
+      key.keyId === credentials.keyMaterial.keyId &&
+      key.deviceId === credentials.keyMaterial.deviceId &&
+      key.status === "active"
+    );
+    if (record === undefined) throw new Error("provided Lotor subject key is not active for this session");
+    return { record, material: credentials.keyMaterial };
+  }
+  const record = keys.find((key) => key.status === "active" && key.encryptedPrivateKeyBackup.length > 0);
+  if (record === undefined) throw new Error("no recoverable active Lotor subject key is enrolled");
+  return { record, material: await unlockSubjectKeyBackup(record, credentials.passphrase) };
 }
 
 export class LotorBrowserClient {
@@ -281,9 +300,7 @@ export class LotorBrowserClient {
 
     const session = await this.session();
     if (!session.authenticated) throw new LotorBrowserError("Lotor request requires authentication", 401, "unauthenticated");
-    const ownerKey = (await this.subjectKeys()).find((key) => key.status === "active" && key.encryptedPrivateKeyBackup.length > 0);
-    if (ownerKey === undefined) throw new Error("no recoverable active Lotor subject key is enrolled");
-    const ownerMaterial = await unlockSubjectKeyBackup(ownerKey, input.passphrase);
+    const { record: ownerKey, material: ownerMaterial } = await resolveSubjectKey(await this.subjectKeys(), input);
     const grantId = await stableOwnerGrantId(keyResource, session.subject, ownerKey.keyId);
     const resourceKey = input.resourceKey.slice();
     try {
@@ -336,9 +353,7 @@ export class LotorBrowserClient {
 
     const session = await this.session();
     if (!session.authenticated) throw new LotorBrowserError("Lotor request requires authentication", 401, "unauthenticated");
-    const issuerKey = (await this.subjectKeys()).find((key) => key.status === "active" && key.encryptedPrivateKeyBackup.length > 0);
-    if (issuerKey === undefined) throw new Error("no recoverable active Lotor subject key is enrolled");
-    const issuerMaterial = await unlockSubjectKeyBackup(issuerKey, input.passphrase);
+    const { record: issuerKey, material: issuerMaterial } = await resolveSubjectKey(await this.subjectKeys(), input);
     const source = preflight.encryption.sourceEnvelope;
     const resourceKey = input.resourceKey.slice();
     try {
@@ -394,9 +409,7 @@ export class LotorBrowserClient {
     if (pending.resource !== normalizedResource) throw new Error("Lotor returned provisioning jobs for another resource");
     const session = await this.session();
     if (!session.authenticated) throw new LotorBrowserError("Lotor request requires authentication", 401, "unauthenticated");
-    const issuerKey = (await this.subjectKeys()).find((key) => key.status === "active" && key.encryptedPrivateKeyBackup.length > 0);
-    if (issuerKey === undefined) throw new Error("no recoverable active Lotor subject key is enrolled");
-    const issuerMaterial = await unlockSubjectKeyBackup(issuerKey, input.passphrase);
+    const { record: issuerKey, material: issuerMaterial } = await resolveSubjectKey(await this.subjectKeys(), input);
     const resourceKey = input.resourceKey.slice();
     try {
       const envelopes = await Promise.all(pending.jobs.map(async (job) => {

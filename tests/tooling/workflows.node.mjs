@@ -55,6 +55,12 @@ describe("release workflow trust boundaries", () => {
     })), /must use a GitHub-hosted runner/);
   });
 
+  test("rejects credential-dependent release re-fetches", () => {
+    assert.throws(() => verifyWorkflowSources(sources({
+      release: replaceOnce(release, "          tag_commit=", "          git fetch origin main\n          tag_commit="),
+    })), /credential-free complete checkout/);
+  });
+
   test("rejects an unreviewed workflow", () => {
     assert.throws(() => verifyWorkflowSources(sources({
       allWorkflows: [["pull-request.yml", pullRequest], ["release.yml", release], ["extra.yml", "name: Extra\n"]],
