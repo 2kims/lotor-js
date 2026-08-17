@@ -73,11 +73,15 @@ export function verifyWorkflowSources({ pullRequest, release, packageJson, allWo
 
   invariant(!/\benvironment:/.test(validate), "validation must not enter a protected environment");
   invariant(!/\bid-token:/.test(validate), "validation must not receive OIDC");
+  includes(validate, "fetch-depth: 0", "validation must fetch complete history for ancestry verification");
+  invariant(!/\bgit fetch\b/.test(validate), "validation must use the credential-free complete checkout without a later fetch");
   includes(validate, "pnpm install --frozen-lockfile", "validation must use the frozen lockfile");
   includes(validate, "pnpm package:check", "validation must exercise the package as a consumer");
 
   invariant(!/\benvironment:/.test(packageJob), "packaging must not enter a protected environment");
   invariant(!/\bid-token:/.test(packageJob), "packaging must not receive OIDC");
+  includes(packageJob, "fetch-depth: 0", "packaging must fetch complete history for ancestry verification");
+  invariant(!/\bgit fetch\b/.test(packageJob), "packaging must use the credential-free complete checkout without a later fetch");
   includes(packageJob, "pnpm install --frozen-lockfile", "packaging must use the frozen lockfile");
   includes(packageJob, "npm pack --ignore-scripts --json --pack-destination", "packaging must disable lifecycle scripts");
 

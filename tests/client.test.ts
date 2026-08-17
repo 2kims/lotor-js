@@ -198,7 +198,7 @@ test("preflights collaboration through the public endpoint and preserves Lotor g
   assert.equal(requests[0]?.url, "https://api.lotor.test/v1/public/applications/signalbox_web/resources/vault%3Aone/links/preflight");
 });
 
-test("bootstraps and sends encrypted links with an application-provided resource key", async () => {
+test("bootstraps and sends encrypted links with interactive or already-unlocked headless key material", async () => {
   const passphrase = "correct horse battery staple";
   const owner = await createSubjectKeyRegistration({
     clientId: "avault_web", subject: "user:owner", passphrase, deviceId: "owner-device",
@@ -286,13 +286,13 @@ test("bootstraps and sends encrypted links with an application-provided resource
   const sdk = new LotorBrowserClient({ baseUrl: "https://api.lotor.test", clientId: "avault_web", fetch: fetcher, tokenStore });
   const resourceKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
   const bootstrap = await sdk.ensureEncryptedResource({
-    scope: "org:one", resource: "project:one", resourceKey, passphrase,
+    scope: "org:one", resource: "project:one", resourceKey, keyMaterial: owner.keys,
   });
   assert.equal(bootstrap.created, true);
   const linked = await sdk.sendEncryptedResourceLinks("vault:one", {
     relation: "member",
     targets: [{ type: "invite", email: "recipient@example.test", provisioning: "existing_only", delivery: "email" }],
-    resourceKey, passphrase, preflightIdempotencyKey: "preflight-1", sendIdempotencyKey: "send-1",
+    resourceKey, keyMaterial: owner.keys, preflightIdempotencyKey: "preflight-1", sendIdempotencyKey: "send-1",
   });
   assert.equal(linked.sent.links[0]?.status, "pending_acceptance");
   assert.deepEqual(resourceKey, Uint8Array.from({ length: 32 }, (_, index) => index + 1));
@@ -310,7 +310,7 @@ test("bootstraps and sends encrypted links with an application-provided resource
     signature: decodeBase64url(envelope.signature!),
   }, recipient.keys.encryptionPrivateKey);
   assert.deepEqual(unwrapped, resourceKey);
-  const provisioned = await sdk.provisionEncryptedResourceLinks("vault:one", { resourceKey, passphrase });
+  const provisioned = await sdk.provisionEncryptedResourceLinks("vault:one", { resourceKey, keyMaterial: owner.keys });
   assert.deepEqual(provisioned, { resource: "vault:one", submitted: 1 });
   assert.deepEqual(resourceKey, Uint8Array.from({ length: 32 }, (_, index) => index + 1));
   const commit = requests.find(({ url }) => url.endsWith("/key-provisioning-jobs/commit"));
@@ -327,6 +327,14 @@ test("bootstraps and sends encrypted links with an application-provided resource
     signature: decodeBase64url(provisionedEnvelope!.signature!),
   }, recipient.keys.encryptionPrivateKey);
   assert.deepEqual(provisionedKey, resourceKey);
+
+  await assert.rejects(
+    () => sdk.ensureEncryptedResource({
+      scope: "org:one", resource: "project:two", resourceKey,
+      keyMaterial: recipient.keys,
+    }),
+    /provided Lotor subject key is not active for this session/,
+  );
 });
 
 test("uses URL-safe organization IDs for collaborator calls and accepts resource invitations", async () => {

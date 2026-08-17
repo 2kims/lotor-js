@@ -167,7 +167,6 @@ jobs:
             echo "Tag and version do not match" >&2
             exit 1
           }
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           tag_commit="$(git rev-parse "refs/tags/$TARGET_TAG^{commit}")"
           head_commit="$(git rev-parse HEAD)"
           [[ "$tag_commit" == "$head_commit" ]] || {
@@ -331,7 +330,6 @@ jobs:
           EXPECTED_COMMIT_SHA: ${{ needs.validate.outputs.commit_sha }}
           EXPECTED_TAG: ${{ needs.validate.outputs.tag }}
         run: |
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           [[ "$(git rev-parse HEAD)" == "$EXPECTED_COMMIT_SHA" ]] || {
             echo "Fresh checkout does not match validated release commit" >&2
             exit 1

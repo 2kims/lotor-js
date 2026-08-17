@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.0-rc.6
+
+- Allow encrypted-resource bootstrap, encrypted link sending, and deferred
+  provisioning to use an already-unlocked, active subject device key in
+  headless runtimes without requiring a passphrase-backed browser key.
+
 ## 0.1.0-rc.5
 
 - Add headless encrypted-resource bootstrap using an application-provided symmetric key.

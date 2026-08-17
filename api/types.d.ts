@@ -1,3 +1,4 @@
+import type { DeviceKeyMaterial } from "./key-access.js";
 export interface AnonymousSession {
     authenticated: false;
 }
@@ -308,30 +309,35 @@ export interface LinkSendResult {
     resource: string;
     links: LinkMutation[];
 }
-export interface EnsureEncryptedResourceInput {
+export type SubjectKeyCredentials = {
+    passphrase: string;
+    keyMaterial?: never;
+} | {
+    passphrase?: never;
+    keyMaterial: DeviceKeyMaterial;
+};
+export type EnsureEncryptedResourceInput = {
     scope: string;
     resource: string;
     keyResource?: string;
     relation?: string;
     version?: number;
     resourceKey: Uint8Array;
-    passphrase: string;
-}
+} & SubjectKeyCredentials;
 export interface EnsureEncryptedResourceResult {
     created: boolean;
     keyResource: string;
     version: number;
     grantId: string;
 }
-export interface EncryptedResourceLinkInput {
+export type EncryptedResourceLinkInput = {
     relation: string;
     targets: LinkTargetInput[];
     resourceKey: Uint8Array;
-    passphrase: string;
     preflightIdempotencyKey: string;
     sendIdempotencyKey?: string;
     ttlSeconds?: number;
-}
+} & SubjectKeyCredentials;
 export interface EncryptedResourceLinkResult {
     preflight: LinkPreflight;
     sent: LinkSendResult;
@@ -353,10 +359,9 @@ export interface KeyProvisioningJobList {
     resource: string;
     jobs: KeyProvisioningJob[];
 }
-export interface ProvisionEncryptedResourceLinksInput {
+export type ProvisionEncryptedResourceLinksInput = {
     resourceKey: Uint8Array;
-    passphrase: string;
-}
+} & SubjectKeyCredentials;
 export interface KeyProvisioningMutation {
     resource: string;
     submitted: number;
