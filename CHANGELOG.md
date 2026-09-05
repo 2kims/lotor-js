@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.1.1-rc.7 (2026-08-31)
+
+- Add cookie-only `same-origin` gateway mode using relative reserved paths,
+  same-origin credentials, and double-submit CSRF proof without bearer storage.
+- Add `sendResourceLinks`, which lets authoritative preflight policy decide
+  whether E2EE material is needed and supports separate keys for manifests
+  spanning multiple key resources.
+- Align organization E2EE policy and asynchronous resource-state types with the
+  OpenAPI contract, and add browser helpers for managed sessions and resumable
+  browser resource-key actions.
+
 ## [0.1.1-rc.6](https://github.com/2kims/lotor-js/compare/v0.1.0-rc.6...v0.1.1-rc.6) (2026-08-17)
 
 

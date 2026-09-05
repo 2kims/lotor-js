@@ -8,17 +8,18 @@ import type {
   PublicApplicationConfiguration,
   PublicApplicationPricing,
   SubjectKeyMutation,
-  ResourceGrantMutation,
-  ResourceMember,
-  LinkPreflight,
-  LinkSendResult,
+  ResourceLinkResult,
+  ResourceLinkCandidateSearchResult,
   UnlinkResult,
   ResourceCollaborationPolicyMutation,
   ResourceCollaborator,
   ResourceCollaboratorList,
   ResourceSearchList,
   ResourceInvitationMutation,
-  ResourceCollaboratorMutation,
+  OrganizationE2EEPolicy,
+  ResourceSessionEnvelope,
+  EncryptionAction,
+  EncryptionActionMutation,
 } from "./types.js";
 import { decodeBase64url, type EncryptedResourceEnvelope } from "./key-access.js";
 
@@ -59,114 +60,110 @@ function bytes(value: unknown, name: string): Uint8Array {
   return decodeBase64url(string(value, name));
 }
 
-export function linkPreflight(value: unknown): LinkPreflight {
-  const input = record(value, "link preflight");
-  const encryption = record(input.encryption, "link encryption");
-  const source = encryption.source_envelope === undefined ? undefined : record(encryption.source_envelope, "source envelope");
+export function resourceLinkResult(value: unknown): ResourceLinkResult {
+  const input = record(value, "resource link result");
+  const revisions = record(input.revisions, "resource link revisions");
+  const capacity = record(input.capacity, "resource link capacity");
+  const billing = record(input.billing, "resource link billing");
+  const impact = record(input.impact, "resource link impact");
   return {
-    preflightId: string(input.preflight_id, "preflight id"), resource: string(input.resource, "resource"),
-    relation: string(input.relation, "relation"), policyRevision: string(input.policy_revision, "policy revision"),
-    expiresAt: integer(input.expires_at, "preflight expiry"),
-    targets: array(input.targets, "link targets").map((item) => {
-      const target = record(item, "link target");
-      return {
-        id: string(target.id, "target id"), type: string(target.type, "link type") as "invite" | "direct",
-        kind: string(target.kind, "target kind") as "email" | "user" | "group",
-        ...(target.email === undefined ? {} : { email: string(target.email, "target email") }),
-        ...(target.subject === undefined ? {} : { subject: string(target.subject, "target subject") }),
-        ...(target.resource === undefined ? {} : { resource: string(target.resource, "target resource") }),
-        ...(target.subject_relation === undefined ? {} : { subjectRelation: string(target.subject_relation, "subject relation") }),
-        classification: string(target.classification, "classification") as "internal" | "guest" | "group" | "unknown",
-        provisioning: string(target.provisioning, "provisioning") as "existing_only" | "create_if_missing",
-        delivery: string(target.delivery, "delivery") as "email" | "in_app" | "external" | "none",
-        reasonCode: string(target.reason_code, "reason code"), message: string(target.message, "message"),
-        recipientKeys: array(target.recipient_keys, "recipient keys").map((item) => {
-          const key = record(item, "recipient key");
-          if (key.encryption_algorithm !== "X25519") throw new Error("invalid recipient key algorithm");
-          return { subject: string(key.subject, "recipient subject"), grantId: string(key.grant_id, "grant id"),
-            keyId: string(key.key_id, "recipient key id"), encryptionAlgorithm: "X25519" as const,
-            publicKey: bytes(key.public_key, "recipient public key") };
-        }),
-        acceptanceRequired: boolean(target.acceptance_required, "acceptance requirement"),
-        encryptionReady: boolean(target.encryption_ready, "encryption readiness"), allowed: boolean(target.allowed, "target decision"),
-      };
-    }),
-    encryption: {
-      required: boolean(encryption.required, "encryption required"), ready: boolean(encryption.ready, "encryption ready"),
-      ...(encryption.key_resource === undefined ? {} : { keyResource: string(encryption.key_resource, "key resource") }),
-      ...(source === undefined ? {} : { sourceEnvelope: {
-        grantId: string(source.grant_id, "source grant"), scope: string(source.scope, "source scope"),
-        resource: string(source.resource, "source resource"), relation: string(source.relation, "source relation"),
-        keyResource: string(source.key_resource, "source key resource"),
-        subject: string(source.recipient_subject, "source recipient subject"),
-        recipientKeyId: string(source.recipient_key_id, "source recipient key"),
-        encryptionSuite: "X25519-HKDF-SHA256-AES-256-GCM" as const,
-        ciphertext: bytes(source.ciphertext, "source ciphertext"),
-        aadHash: bytes(source.aad_hash, "source aad hash"), issuer: string(source.issuer, "source issuer"),
-        issuerKeyId: string(source.issuer_key_id, "source issuer key"),
-        issuerSigningAlgorithm: (() => {
-          if (source.issuer_signing_algorithm !== "Ed25519") throw new Error("invalid source issuer signing algorithm");
-          return "Ed25519" as const;
-        })(),
-        issuerSigningPublicKey: bytes(source.issuer_signing_public_key, "source issuer signing public key"),
-        issuerKeyStatus: (() => {
-          if (source.issuer_key_status !== "active" && source.issuer_key_status !== "revoked") throw new Error("invalid source issuer key status");
-          return source.issuer_key_status;
-        })(),
-        signature: bytes(source.signature, "source signature"),
-        keyVersion: integer(source.key_version, "source key version"),
-      } }),
+    resource: string(input.resource, "resource"), status: string(input.status, "link status") as ResourceLinkResult["status"],
+    ...(input.failure_reason === undefined ? {} : { failureReason: string(input.failure_reason, "failure reason") }),
+    expiresAt: integer(input.expires_at, "link expiry"), idempotent: boolean(input.idempotent, "link idempotent"),
+    committable: boolean(input.committable, "link committable"),
+    revisions: {
+      customer: string(revisions.customer, "customer revision"), graph: string(revisions.graph, "graph revision"),
+      policy: string(revisions.policy, "policy revision"), identity: string(revisions.identity, "identity revision"),
+      billing: string(revisions.billing, "billing revision"), seat: string(revisions.seat, "seat revision"),
+      key: string(revisions.key, "key revision"),
     },
-    ready: boolean(input.ready, "preflight readiness"), idempotent: boolean(input.idempotent, "preflight idempotency"),
+    outcomes: array(input.outcomes, "link outcomes").map((raw) => { const item = record(raw, "link outcome"); return {
+      ...(item.link_id === undefined ? {} : { linkId: string(item.link_id, "outcome link id") }),
+      resource: string(item.resource, "outcome resource"), subject: string(item.subject, "outcome subject"),
+      relation: string(item.relation, "outcome relation"), state: string(item.state, "outcome state") as ResourceLinkResult["outcomes"][number]["state"],
+      allowed: boolean(item.allowed, "outcome allowed"), ...(item.reason === undefined ? {} : { reason: string(item.reason, "outcome reason") }),
+    }; }),
+    capacity: { scope: string(capacity.scope, "capacity scope") as "per_organization" | "per_account",
+      before: integer(capacity.before, "capacity before"), after: integer(capacity.after, "capacity after"),
+      claim: integer(capacity.claim, "capacity claim"), release: integer(capacity.release, "capacity release") },
+    billing: { currentQuantity: integer(billing.current_quantity, "billing current"), nextCycleQuantity: integer(billing.next_cycle_quantity, "billing next"),
+      increase: integer(billing.increase, "billing increase"), nextCycleReduction: integer(billing.next_cycle_reduction, "billing reduction") },
+    invitationActions: array(input.invitation_actions, "invitation actions").map((raw) => { const item = record(raw, "invitation action"); return {
+      invitationId: string(item.invitation_id, "invitation id"), action: string(item.action, "invitation action") as ResourceLinkResult["invitationActions"][number]["action"],
+      ...(item.reason === undefined ? {} : { reason: string(item.reason, "invitation reason") }),
+    }; }),
+    keyRequirements: array(input.key_requirements, "key requirements").map((raw) => { const item = record(raw, "key requirement");
+      if (item.encryption_algorithm !== "X25519") throw new Error("invalid key requirement algorithm");
+      return { manifestItemId: string(item.manifest_item_id, "manifest item"), grantId: string(item.grant_id, "grant id"),
+        resource: string(item.resource, "key resource target"),
+        relation: string(item.relation, "key relation"), keyResource: string(item.key_resource, "key resource"), keyVersion: string(item.key_version, "key version"),
+        recipientSubject: string(item.recipient_subject, "recipient subject"), recipientKeyId: string(item.recipient_key_id, "recipient key"),
+        encryptionAlgorithm: "X25519" as const, publicKey: bytes(item.public_key, "recipient public key"),
+        ...(item.invitation_id === undefined ? {} : { invitationId: string(item.invitation_id, "invitation id") }),
+        ...(item.activation === undefined ? {} : { activation: string(item.activation, "key activation") as "active" | "pending_invitation" }) }; }),
+    impact: { impactedResources: array(impact.impacted_resources, "impacted resources").map((item) => string(item, "impacted resource")),
+      retainedResources: array(impact.retained_resources, "retained resources").map((item) => string(item, "retained resource")),
+      rekeyResources: array(impact.rekey_resources, "rekey resources").map((item) => string(item, "rekey resource")) },
   };
 }
 
-export function linkSendResult(value: unknown): LinkSendResult {
-  const input = record(value, "link send");
-  return { preflightId: string(input.preflight_id, "preflight id"), resource: string(input.resource, "resource"),
-    links: array(input.links, "links").map((item) => {
-      const link = record(item, "link");
-      return { id: string(link.id, "link id"), targetId: string(link.target_id, "target id"),
-        type: string(link.type, "link type") as "invite" | "direct", subject: string(link.subject, "link subject"),
-        status: string(link.status, "link status"),
-        ...(link.invitation_id === undefined ? {} : { invitationId: string(link.invitation_id, "invitation id") }),
-        ...(link.ticket === undefined ? {} : { ticket: string(link.ticket, "invitation ticket") }) };
-    }) };
+function keyRequirements(value: unknown): import("./types.js").ResourceLinkKeyRequirement[] {
+  return resourceLinkResult({
+    resource: "resource:decode", status: "ready", expires_at: 0, idempotent: false, committable: true,
+    revisions: { customer: "", graph: "", policy: "", identity: "", billing: "", seat: "", key: "" },
+    outcomes: [], capacity: { scope: "per_organization", before: 0, after: 0, claim: 0, release: 0 },
+    billing: { current_quantity: 0, next_cycle_quantity: 0, increase: 0, next_cycle_reduction: 0 },
+    invitation_actions: [], key_requirements: value,
+    impact: { impacted_resources: [], retained_resources: [], rekey_resources: [] },
+  }).keyRequirements;
 }
 
-export function keyProvisioningJobs(value: unknown): import("./types.js").KeyProvisioningJobList {
-  const input = record(value, "key provisioning jobs");
-  return {
-    resource: string(input.resource, "key provisioning resource"),
-    jobs: array(input.jobs, "key provisioning jobs").map((raw) => {
-      const job = record(raw, "key provisioning job");
-      if (job.encryption_algorithm !== "X25519") throw new Error("invalid provisioning encryption algorithm");
-      if (job.link_status !== "pending_acceptance" && job.link_status !== "pending_encryption" && job.link_status !== "active") {
-        throw new Error("invalid provisioning link status");
-      }
-      return {
-        grantId: string(job.grant_id, "provisioning grant id"),
-        linkId: string(job.link_id, "provisioning link id"),
-        resource: string(job.resource, "provisioning resource"),
-        relation: string(job.relation, "provisioning relation"),
-        keyResource: string(job.key_resource, "provisioning key resource"),
-        keyVersion: integer(job.key_version, "provisioning key version"),
-        subject: string(job.subject, "provisioning subject"),
-        recipientKeyId: string(job.recipient_key_id, "provisioning recipient key id"),
-        encryptionAlgorithm: "X25519" as const,
-        publicKey: bytes(job.public_key, "provisioning public key"),
-        linkStatus: job.link_status,
-      };
-    }),
-  };
+export function organizationE2EEPolicy(value: unknown): OrganizationE2EEPolicy {
+  const input = record(value, "organization E2EE policy");
+  return { organization: string(input.organization, "organization"),
+    requiredAccountCustody: string(input.required_account_custody, "required account custody") as OrganizationE2EEPolicy["requiredAccountCustody"],
+    resourceKeyExecutor: string(input.resource_key_executor, "resource key executor") as OrganizationE2EEPolicy["resourceKeyExecutor"],
+    automationExecutor: string(input.automation_executor, "automation executor") as OrganizationE2EEPolicy["automationExecutor"],
+    ...(input.function_binding_id === undefined ? {} : { functionBindingId: string(input.function_binding_id, "function binding") }),
+    resourceKeyPolicy: string(input.resource_key_policy, "resource key policy") as OrganizationE2EEPolicy["resourceKeyPolicy"],
+    status: string(input.status, "E2EE policy status") as OrganizationE2EEPolicy["status"], revision: integer(input.revision, "E2EE policy revision") };
 }
 
-export function keyProvisioningMutation(value: unknown): import("./types.js").KeyProvisioningMutation {
-  const input = record(value, "key provisioning mutation");
-  return {
-    resource: string(input.resource, "key provisioning resource"),
-    submitted: integer(input.submitted, "submitted envelope count"),
-  };
+export function resourceSessionEnvelope(value: unknown): ResourceSessionEnvelope {
+  const input = record(value, "resource session envelope");
+  return { resource: string(input.resource, "resource"), keyResource: string(input.key_resource, "key resource"),
+    keyVersion: integer(input.key_version, "key version"), encryptionSuite: string(input.encryption_suite, "encryption suite") as ResourceSessionEnvelope["encryptionSuite"],
+    ephemeralPublicKey: string(input.ephemeral_public_key, "ephemeral public key"), nonce: string(input.nonce, "nonce"),
+    ciphertext: string(input.ciphertext, "ciphertext"), associatedData: string(input.associated_data, "associated data"),
+    aadHash: string(input.aad_hash, "AAD hash"), expiresAt: integer(input.expires_at, "expiry") };
+}
+
+export function encryptionActions(value: unknown): EncryptionAction[] {
+  const input = record(value, "encryption actions");
+  return array(input.actions, "encryption actions").map((raw) => { const action = record(raw, "encryption action"); return {
+    id: string(action.id, "action id"), kind: string(action.kind, "action kind") as EncryptionAction["kind"],
+    resource: string(action.resource, "action resource"), status: string(action.status, "action status") as "awaiting_browser",
+    revision: string(action.revision, "action revision"), keyRequirements: keyRequirements(action.key_requirements),
+  }; });
+}
+
+export function encryptionActionMutation(value: unknown): EncryptionActionMutation {
+  const input = record(value, "encryption action mutation");
+  return { id: string(input.id, "action id"), status: string(input.status, "action status") as EncryptionActionMutation["status"],
+    idempotent: boolean(input.idempotent, "action idempotent") };
+}
+
+export function resourceLinkCandidates(value: unknown): ResourceLinkCandidateSearchResult {
+  const input = record(value, "resource link candidates");
+  return { candidates: array(input.candidates, "link candidates").map((raw) => { const item = record(raw, "link candidate"); return {
+    kind: string(item.kind, "candidate kind") as "user" | "group", displayName: string(item.display_name, "candidate display name"),
+    ...(item.subject === undefined ? {} : { subject: string(item.subject, "candidate subject") }),
+    ...(item.resource === undefined ? {} : { resource: string(item.resource, "candidate resource") }),
+    ...(item.subject_relation === undefined ? {} : { subjectRelation: string(item.subject_relation, "candidate subject relation") as "member" }),
+    ...(item.email === undefined ? {} : { email: string(item.email, "candidate email") }),
+    linkState: string(item.link_state, "candidate link state") as "available" | "linked" | "pending_invitation",
+    selectable: boolean(item.selectable, "candidate selectable"), ...(item.reason === undefined ? {} : { reason: string(item.reason, "candidate reason") }),
+  }; }), nextCursor: input.next_cursor === null ? null : string(input.next_cursor, "candidate cursor") };
 }
 
 export function unlinkResult(value: unknown): UnlinkResult {
@@ -308,20 +305,6 @@ export function resourceInvitationMutation(value: unknown): ResourceInvitationMu
   return { id: string(input.id, "invitation id"), resource: string(input.resource, "invitation resource"), relation: string(input.relation, "invitation relation"), status: string(input.status, "invitation status"), idempotent: boolean(input.idempotent, "invitation idempotency") };
 }
 
-export function collaboratorMutation(value: unknown): ResourceCollaboratorMutation {
-  const input = record(value, "collaborator mutation");
-  return {
-    resource: string(input.resource, "collaborator resource"),
-    collaborator: string(input.collaborator, "collaborator id"),
-    relations: array(input.relations, "collaborator relations").map(value => string(value, "collaborator relation")),
-    status: string(input.status, "collaborator status"),
-    ...(input.force === undefined ? {} : { force: boolean(input.force, "collaborator force") }),
-    ...(input.cascaded_groups === undefined ? {} : { cascaded_groups: array(input.cascaded_groups, "cascaded groups").map(value => string(value, "cascaded group")) }),
-    ...(input.rekey_required === undefined ? {} : { rekey_required: boolean(input.rekey_required, "rekey required") }),
-    ...(input.rekey_resources === undefined ? {} : { rekey_resources: array(input.rekey_resources, "rekey resources").map(value => string(value, "rekey resource")) }),
-  };
-}
-
 export function challenge(value: unknown): PasswordlessChallenge {
   const input = record(value, "passwordless challenge");
   if (input.delivery !== "email") throw new Error("invalid passwordless delivery");
@@ -333,15 +316,63 @@ export function challenge(value: unknown): PasswordlessChallenge {
 }
 
 export function verification(value: unknown): { token: string; session: AuthenticatedSession } {
-  const input = record(value, "passwordless verification");
-  return {
+	const input = record(value, "passwordless verification");
+	const e2ee = input.e2ee === undefined ? undefined : record(input.e2ee, "passwordless E2EE");
+	return {
     token: string(input.access_token, "access token"),
     session: {
       authenticated: true,
       subject: string(input.subject, "session subject"),
-      email: string(input.email, "session email"),
+			email: string(input.email, "session email"),
+			...(e2ee === undefined ? {} : { e2ee: {
+				claimRequired: boolean(e2ee.claim_required, "E2EE claim requirement"),
+				...(e2ee.claim_id === undefined ? {} : { claimId: string(e2ee.claim_id, "E2EE claim id") }),
+			} }),
     },
   };
+}
+
+export function sameOriginVerification(value: unknown): AuthenticatedSession {
+	const input = record(value, "same-origin passwordless verification");
+	if (input.authenticated !== true) throw new Error("invalid authenticated session");
+	const e2ee = input.e2ee === undefined ? undefined : record(input.e2ee, "passwordless E2EE");
+	return {
+		authenticated: true, subject: string(input.subject, "session subject"),
+		...(e2ee === undefined ? {} : { e2ee: {
+			claimRequired: boolean(e2ee.claim_required, "E2EE claim requirement"),
+			...(e2ee.claim_id === undefined ? {} : { claimId: string(e2ee.claim_id, "E2EE claim id") }),
+		} }),
+	};
+}
+
+export function publicKeyClaim(value: unknown): import("./types.js").PublicKeyClaim {
+	const input = record(value, "public key claim");
+	const status = string(input.status, "public key claim status");
+	if (!["pending", "transferring", "completed", "expired", "cancelled"].includes(status)) throw new Error("invalid public key claim status");
+	const encryptionPublicKey = bytes(input.encryption_public_key, "claim encryption public key");
+	const signingPublicKey = bytes(input.signing_public_key, "claim signing public key");
+	if (encryptionPublicKey.length !== 32 || signingPublicKey.length !== 32) throw new Error("invalid public key claim key length");
+	return {
+		claimId: string(input.claim_id, "public key claim id"), keyId: string(input.key_id, "public key id"),
+		generation: integer(input.generation, "public key generation"), status: status as import("./types.js").PublicKeyClaim["status"],
+		encryptionPublicKey, signingPublicKey,
+		expiresAt: integer(input.expires_at, "public key claim expiry"),
+	};
+}
+
+export function publicKeyClaimTransfer(value: unknown, claim: import("./types.js").PublicKeyClaim): import("./types.js").PublicKeyClaimTransfer {
+	const input = record(value, "public key claim transfer");
+	if (input.encryption_suite !== "X25519-HKDF-SHA256-AES-256-GCM") throw new Error("invalid claim transfer suite");
+	if (string(input.claim_id, "claim transfer id") !== claim.claimId || string(input.key_id, "claim transfer key id") !== claim.keyId || integer(input.generation, "claim transfer generation") !== claim.generation || integer(input.expires_at, "claim transfer expiry") !== claim.expiresAt) throw new Error("claim transfer context mismatch");
+	const boxPublicKey = bytes(input.box_public_key, "box transfer public key");
+	const nonce = bytes(input.nonce, "claim transfer nonce");
+	if (boxPublicKey.length !== 32 || nonce.length !== 12) throw new Error("invalid claim transfer key material");
+	return {
+		...claim, status: "transferring", encryptedPrivateBundle: bytes(input.encrypted_private_bundle, "encrypted private bundle"),
+		boxPublicKey, nonce,
+		aadHash: string(input.aad_hash, "claim transfer AAD hash"), associatedData: bytes(input.associated_data, "claim transfer associated data"),
+		encryptionSuite: "X25519-HKDF-SHA256-AES-256-GCM",
+	};
 }
 
 export function session(value: unknown): ApplicationSession {
@@ -351,7 +382,7 @@ export function session(value: unknown): ApplicationSession {
   return {
     authenticated: true,
     subject: string(input.subject, "session subject"),
-    email: string(input.email, "session email"),
+    ...(input.email === undefined ? {} : { email: string(input.email, "session email") }),
     ...(keyAccess === undefined ? {} : { keyAccess: {
       enabled: boolean(keyAccess.enabled, "session key access enabled"),
       requiredBeforeSignupComplete: boolean(keyAccess.required_before_signup_complete, "key enrollment required"),
@@ -367,6 +398,7 @@ export function configuration(value: unknown): PublicApplicationConfiguration {
   const application = record(input.application, "application");
   const environment = record(input.environment, "environment");
   const authentication = record(input.authentication, "authentication");
+  const e2ee = record(input.e2ee, "E2EE configuration");
   const keyAccess = record(input.key_access ?? { enabled: false, enrollment: { requirement: "", setup_delivery: "", passphrase_source: "", private_key_backup: "", password_kdf: "", recovery_methods: [], setup_link_ttl_seconds: 0 }, resource_types: [] }, "key access configuration");
   const enrollment = record(keyAccess.enrollment, "key access enrollment");
   return {
@@ -378,6 +410,13 @@ export function configuration(value: unknown): PublicApplicationConfiguration {
     },
     authentication: {
       methods: array(authentication.methods, "authentication methods").map((item) => string(item, "authentication method")),
+    },
+    e2ee: {
+      enabled: boolean(e2ee.enabled, "E2EE enabled"),
+      allowedAccountCustody: array(e2ee.allowed_account_custody, "allowed account custody").map((item) => string(item, "account custody")) as PublicApplicationConfiguration["e2ee"]["allowedAccountCustody"],
+      accountBackup: string(e2ee.account_backup, "account backup") as PublicApplicationConfiguration["e2ee"]["accountBackup"],
+      defaultResourceKeyExecutor: string(e2ee.default_resource_key_executor, "default resource-key executor") as PublicApplicationConfiguration["e2ee"]["defaultResourceKeyExecutor"],
+      browserActionsSupported: boolean(e2ee.browser_actions_supported, "browser actions supported"),
     },
     keyAccess: {
       enabled: boolean(keyAccess.enabled, "key access enabled"),
@@ -392,7 +431,23 @@ export function configuration(value: unknown): PublicApplicationConfiguration {
       },
       resourceTypes: array(keyAccess.resource_types, "key access resource types").map((raw) => {
         const resource = record(raw, "key access resource type");
-        return { type: string(resource.type, "resource type"), parentType: string(resource.parent_type, "resource parent type"), encryption: { mode: string(resource.mode, "resource encryption mode") as "none" | "optional" | "required", defaultKeyStrategy: string(resource.default_key_strategy, "resource key strategy") as "none" | "resource_key" | "inherited", allowInherited: boolean(resource.allow_inherited, "allow inherited key") } };
+        const payload = record(resource.payload ?? { storage: "none", slots: [] }, "resource payload policy");
+        return {
+          type: string(resource.type, "resource type"), parentType: string(resource.parent_type, "resource parent type"),
+          encryption: { mode: string(resource.mode, "resource encryption mode") as "none" | "optional" | "required" },
+          payload: {
+            storage: string(payload.storage, "resource payload storage") as import("./types.js").ResourcePayloadTypePolicy["storage"],
+            slots: array(payload.slots, "resource payload slots").map((rawSlot) => {
+              const slot = record(rawSlot, "resource payload slot");
+              return {
+                name: string(slot.name, "resource payload slot name"),
+                schemaIds: array(slot.schema_ids, "resource payload schema ids").map((value) => string(value, "resource payload schema id")),
+                maximumObjectSize: integer(slot.maximum_object_size, "resource payload maximum object size"),
+                required: boolean(slot.required, "resource payload required"),
+              };
+            }),
+          },
+        };
       }),
     },
   };
@@ -456,15 +511,116 @@ export function organization(value: unknown): OrganizationSummary {
 }
 
 export function collaborationResource(value: unknown): CollaborationResource {
-  const input = record(value, "collaboration resource");
-  if (input.status !== "active" && input.status !== "deleted") throw new Error("invalid collaboration resource status");
-  return {
+	const input = record(value, "collaboration resource");
+	if (input.status !== "pending_encryption" && input.status !== "pending_payload" && input.status !== "pending_encryption_payload" && input.status !== "active" && input.status !== "disabled" && input.status !== "deleting" && input.status !== "failed" && input.status !== "deleted") throw new Error("invalid collaboration resource status");
+	const encryption = record(input.encryption, "collaboration resource encryption");
+	const binding = input.catalog_binding === undefined ? undefined : record(input.catalog_binding, "resource Catalog binding");
+	return {
     id: string(input.id, "collaboration resource id"),
+    ...(input.link_id === undefined ? {} : { linkId: string(input.link_id, "collaboration resource link id") }),
     resource: string(input.resource, "collaboration resource reference"),
     resourceType: string(input.resource_type, "collaboration resource type"),
     displayName: string(input.display_name, "collaboration resource name"),
     ...(input.parent === undefined ? {} : { parent: string(input.parent, "collaboration resource parent") }),
     status: input.status,
+    revision: integer(input.revision, "collaboration resource revision"),
+		lifecycleGeneration: integer(input.lifecycle_generation, "collaboration resource lifecycle generation"),
+		...(binding === undefined ? {} : { catalogBinding: {
+			catalogId: string(binding.catalog_id, "resource Catalog id"), snapshotId: string(binding.snapshot_id, "resource Catalog snapshot id"),
+			snapshotDigest: string(binding.snapshot_digest, "resource Catalog snapshot digest"),
+			entryKinds: array(binding.entry_kinds, "resource Catalog entry kinds").map(value => string(value, "resource Catalog entry kind") as "api.operation"),
+			resourceRevision: integer(binding.resource_revision, "resource Catalog revision"),
+		} }),
+    encryption: {
+      required: boolean(encryption.required, "collaboration resource encryption required"),
+      status: string(encryption.status, "collaboration resource encryption status") as CollaborationResource["encryption"]["status"],
+      ...(encryption.key_scope === undefined ? {} : { keyScope: string(encryption.key_scope, "collaboration resource key scope") as "organization" | "resource" }),
+      ...(encryption.effective_key_resource === undefined ? {} : { effectiveKeyResource: string(encryption.effective_key_resource, "collaboration resource effective key resource") }),
+      ...(encryption.key_resource === undefined ? {} : { keyResource: string(encryption.key_resource, "collaboration resource key resource") }),
+      ...(encryption.key_version === undefined ? {} : { keyVersion: integer(encryption.key_version, "collaboration resource key version") }),
+    },
+	};
+}
+
+export function durableOperation(value: unknown): import("./types.js").DurableOperation {
+	const input = record(value, "durable operation");
+	const kind = string(input.kind, "durable operation kind") as import("./types.js").DurableOperation["kind"];
+	const status = string(input.status, "durable operation status") as import("./types.js").DurableOperation["status"];
+	const targetKind = string(input.target_kind, "durable operation target kind") as import("./types.js").DurableOperation["targetKind"];
+	if (!["resource_create", "resource_move", "resource_disable", "resource_restore", "resource_delete", "catalog_import", "catalog_publish", "catalog_binding"].includes(kind)) throw new Error("invalid durable operation kind");
+	if (!["pending", "running", "succeeded", "failed", "cancelled"].includes(status)) throw new Error("invalid durable operation status");
+	if (!["resource", "catalog", "catalog_snapshot"].includes(targetKind)) throw new Error("invalid durable operation target kind");
+	return {
+		id: string(input.id, "durable operation id"), kind, status, targetKind,
+		targetId: string(input.target_id, "durable operation target"), requestHash: string(input.request_hash, "durable operation request hash"),
+		...(input.error_code === undefined ? {} : { errorCode: string(input.error_code, "durable operation error code") }),
+		createdAt: integer(input.created_at, "durable operation creation time"), updatedAt: integer(input.updated_at, "durable operation update time"),
+	};
+}
+
+export function resourcePayloadManifest(value: unknown): import("./types.js").ResourcePayloadManifest {
+  const input = record(value, "resource payload manifest");
+  const representation = string(input.representation, "resource payload representation") as "raw" | "encrypted-envelope-v1";
+  const common = {
+    resource: string(input.resource, "resource payload resource"), slot: string(input.slot, "resource payload slot"),
+    schemaId: string(input.schema_id, "resource payload schema"), payloadVersion: integer(input.payload_version, "resource payload version"),
+    objectDigest: string(input.object_digest, "resource payload digest"), objectSize: integer(input.object_size, "resource payload size"),
+    resourceRevision: integer(input.resource_revision, "resource payload resource revision"), lifecycleGeneration: integer(input.lifecycle_generation, "resource payload lifecycle generation"),
+    state: string(input.state, "resource payload state") as "committed" | "deleting" | "deleted", committedAt: integer(input.committed_at, "resource payload commit time"),
+    ...(input.deleted_at === undefined ? {} : { deletedAt: integer(input.deleted_at, "resource payload deletion time") }),
+  };
+  if (representation === "raw") return { ...common, representation };
+  if (representation !== "encrypted-envelope-v1") throw new Error("resource payload representation is invalid");
+  return {
+    ...common, representation,
+    encryptionSuite: string(input.encryption_suite, "resource payload encryption suite") as "AES-256-GCM",
+    keyBindingRef: string(input.key_binding_ref, "resource payload key binding reference"), keyVersion: integer(input.key_version, "resource payload key version"),
+    wrappedPayloadKey: string(input.wrapped_payload_key, "wrapped payload key"), aadHash: string(input.aad_hash, "resource payload AAD hash"),
+    encryptorSubject: string(input.encryptor_subject, "resource payload encryptor subject"), encryptorKeyId: string(input.encryptor_key_id, "resource payload encryptor key"),
+  };
+}
+
+export function resourcePayloadUploadIntent(value: unknown): import("./types.js").ResourcePayloadUploadIntent {
+  const input = record(value, "resource payload upload intent");
+  const headers = record(input.required_headers, "resource payload upload headers");
+  return {
+	resource: string(input.resource, "resource payload resource"), slot: string(input.slot, "resource payload slot"),
+	payloadVersion: integer(input.payload_version, "resource payload version"),
+	expectedPayloadVersion: integer(input.expected_payload_version, "resource payload expected version"),
+	uploadUrl: string(input.upload_url, "resource payload upload URL"),
+    uploadMethod: string(input.upload_method, "resource payload upload method") as "PUT",
+    requiredHeaders: Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, string(value, `resource payload header ${name}`)])),
+    expiresAt: integer(input.expires_at, "resource payload upload expiry"),
+  };
+}
+
+export function resourcePayloadAccessLease(value: unknown): import("./types.js").ResourcePayloadAccessLease {
+  const input = record(value, "resource payload access lease");
+  return {
+    resource: string(input.resource, "resource payload resource"), slot: string(input.slot, "resource payload slot"), payloadVersion: integer(input.payload_version, "resource payload version"),
+    representation: string(input.representation, "resource payload representation") as "raw" | "encrypted-envelope-v1",
+    objectDigest: string(input.object_digest, "resource payload digest"), objectSize: integer(input.object_size, "resource payload size"),
+    downloadUrl: string(input.download_url, "resource payload download URL"), downloadMethod: string(input.download_method, "resource payload download method") as "GET",
+    expiresAt: integer(input.expires_at, "resource payload lease expiry"), audience: string(input.audience, "resource payload audience"),
+    resourceRevision: integer(input.resource_revision, "resource payload resource revision"), lifecycleGeneration: integer(input.lifecycle_generation, "resource payload lifecycle generation"),
+  };
+}
+
+export function resourcePayloadMutation(value: unknown): import("./types.js").ResourcePayloadMutation {
+  const input = record(value, "resource payload mutation");
+  return { resource: string(input.resource, "resource payload resource"), slot: string(input.slot, "resource payload slot"), payloadVersion: integer(input.payload_version, "resource payload version"), state: string(input.state, "resource payload state") as "deleting" | "deleted", idempotent: boolean(input.idempotent, "resource payload idempotency") };
+}
+
+export function resourcePayloadRewrapResult(value: unknown): import("./types.js").ResourcePayloadRewrapResult {
+  const input = record(value, "resource payload rewrap result");
+  return {
+    resource: string(input.resource, "resource payload resource"), slot: string(input.slot, "resource payload slot"),
+    payloadVersion: integer(input.payload_version, "resource payload version"), wrapRevision: integer(input.wrap_revision, "resource payload wrap revision"),
+    keyBindingRef: string(input.key_binding_ref, "resource payload key binding"), previousKeyVersion: integer(input.previous_key_version, "previous resource key version"),
+    keyVersion: integer(input.key_version, "resource key version"), wrappedPayloadKey: string(input.wrapped_payload_key, "wrapped payload key"),
+    aadHash: string(input.aad_hash, "resource payload AAD hash"), rewrapperSubject: string(input.rewrapper_subject, "resource payload rewrapper subject"),
+    rewrapperKeyId: string(input.rewrapper_key_id, "resource payload rewrapper key"), resourceRevision: integer(input.resource_revision, "resource revision"),
+    lifecycleGeneration: integer(input.lifecycle_generation, "resource lifecycle generation"),
   };
 }
 
@@ -515,39 +671,6 @@ export function subjectKeys(value: unknown): import("./key-access.js").SubjectKe
       backupFormatVersion: integer(key.backup_format_version, "subject backup format version"), status,
       logSeq: integer(key.log_seq, "subject key log sequence"),
     };
-  });
-}
-
-export function resourceGrantMutation(value: unknown): ResourceGrantMutation {
-  const input = record(value, "resource grant mutation");
-  return { accepted: boolean(input.accepted, "resource grant accepted"), reason: string(input.reason, "resource grant reason"), grantId: string(input.grant_id, "resource grant id"), status: string(input.status, "resource grant status"), logSeq: integer(input.log_seq, "resource grant log sequence") };
-}
-
-export function resourceKeyMutation(value: unknown): import("./types.js").ResourceKeyMutation {
-  const input = record(value, "resource key mutation");
-  return {
-    accepted: boolean(input.accepted, "resource key accepted"),
-    reason: string(input.reason, "resource key reason"),
-    keyResource: string(input.key_resource, "key resource"),
-    version: integer(input.version, "resource key version"),
-    logSeq: integer(input.log_seq, "resource key log sequence"),
-  };
-}
-
-export function encryptedInvitationMutation(value: unknown): import("./types.js").EncryptedInvitationMutation {
-  const input = record(value, "encrypted invitation mutation");
-  return { accepted: boolean(input.accepted, "invitation accepted"), reason: string(input.reason, "invitation reason"), invitationId: string(input.invitation_id, "invitation id"), logSeq: integer(input.log_seq, "invitation log sequence") };
-}
-
-export function resourceMembers(value: unknown, scope: string): ResourceMember[] {
-  const input = record(value, "resource members");
-  return array(input.members, "resource members").map((raw) => {
-    const member = record(raw, "resource member");
-    const status = string(member.status, "resource member status");
-    if (status !== "pending_provisioning" && status !== "active" && status !== "revoked") throw new Error("invalid resource member status");
-    const keyStatus = string(member.recipient_key_status, "recipient key status");
-    if (keyStatus !== "" && keyStatus !== "active" && keyStatus !== "revoked") throw new Error("invalid recipient key status");
-    return { grantId: string(member.grant_id, "grant id"), subject: string(member.subject, "member subject"), relation: string(member.relation, "member relation"), resource: string(member.resource, "member resource"), keyResource: string(member.key_resource, "key resource"), keyVersion: integer(member.key_version, "key version"), recipientKeyId: string(member.recipient_key_id, "recipient key id"), invitationId: string(member.invitation_id, "invitation id"), status, recipientKeyStatus: keyStatus, recipientEncryptionPublicKey: bytes(member.recipient_encryption_public_key, "recipient public key"), logSeq: integer(member.log_seq, "member log sequence"), scope };
   });
 }
 

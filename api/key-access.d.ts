@@ -46,6 +46,31 @@ export declare function createSubjectKeyRegistration(input: CreateSubjectKeyRegi
     keys: DeviceKeyMaterial;
 }>;
 export declare function unlockSubjectKeyBackup(record: SubjectKeyRecord, passphrase: string): Promise<DeviceKeyMaterial>;
+export interface ClaimTransferMaterial {
+    encryptedPrivateBundle: Uint8Array;
+    boxPublicKey: Uint8Array;
+    nonce: Uint8Array;
+    aadHash: string;
+    associatedData: Uint8Array;
+    encryptionPublicKey: Uint8Array;
+    signingPublicKey: Uint8Array;
+    keyId: string;
+}
+export declare function createClaimTransferKey(): Promise<{
+    publicKey: string;
+    privateKey: CryptoKey;
+}>;
+export declare function claimTransferredSubjectKey(input: {
+    clientId: string;
+    subject: string;
+    claimId: string;
+    passphrase: string;
+    transferPrivateKey: CryptoKey;
+    transfer: ClaimTransferMaterial;
+}): Promise<{
+    request: SubjectKeyRegistrationRequest;
+    keys: DeviceKeyMaterial;
+}>;
 export interface ResourceProvisioningMember {
     grantId: string;
     scope: string;
@@ -99,4 +124,11 @@ export interface EncryptedResourceEnvelope {
     issuerKeyStatus: "active" | "revoked";
     signature: Uint8Array;
 }
+export interface ResourceSessionKeyRequest {
+    publicKey: string;
+    clientNonce: string;
+    privateKey: CryptoKey;
+}
+export declare function createResourceSessionKeyRequest(): Promise<ResourceSessionKeyRequest>;
+export declare function unwrapResourceSessionEnvelope(envelope: import("./types.js").ResourceSessionEnvelope, request: ResourceSessionKeyRequest, expectedResource: string, now?: number): Promise<Uint8Array>;
 export declare function unwrapResourceEnvelope(clientId: string, envelope: EncryptedResourceEnvelope, privateKey: CryptoKey): Promise<Uint8Array>;

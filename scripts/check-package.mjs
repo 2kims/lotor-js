@@ -36,6 +36,8 @@ try {
     "dist/index.js",
     "dist/key-access.d.ts",
     "dist/key-access.js",
+    "dist/resource-payload.d.ts",
+    "dist/resource-payload.js",
     "dist/transport.d.ts",
     "dist/transport.js",
     "dist/types.d.ts",
@@ -72,7 +74,14 @@ import { LotorBrowserClient, MemoryTokenStore, type CheckoutSession } from "@lot
 const client = new LotorBrowserClient({
   baseUrl: "https://api.lotor.test",
   clientId: "public_consumer",
+  publishableKey: "lp_sbx_public_consumer",
   tokenStore: new MemoryTokenStore(),
+});
+const sameOrigin = new LotorBrowserClient({
+  mode: "same-origin",
+  clientId: "public_consumer",
+  publishableKey: "lp_sbx_public_consumer",
+  csrfToken: () => "csrf-proof",
 });
 const checkout: Promise<CheckoutSession> = client.billing.createCheckoutSession({
   organizationId: "organization_public",
@@ -84,6 +93,7 @@ const checkout: Promise<CheckoutSession> = client.billing.createCheckoutSession(
   idempotencyKey: "consumer-checkout",
 });
 void checkout;
+void sameOrigin;
 `);
   writeFileSync(join(consumer, "runtime.mjs"), `
 import assert from "node:assert/strict";
@@ -96,6 +106,7 @@ const fetcher = async (input, init = {}) => {
   assert.ok(url.startsWith("https://api.lotor.test/v1/public/applications/public_consumer/"));
   assert.equal(init.credentials, "omit");
   const headers = new Headers(init.headers);
+  assert.equal(headers.get("X-Lotor-Publishable-Key"), "lp_sbx_public_consumer");
   const response = (value, status = 200) => new Response(JSON.stringify(value), {
     status,
     headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "https://app.example.test" },
@@ -114,7 +125,7 @@ const fetcher = async (input, init = {}) => {
   throw new Error(\`unexpected request: \${url}\`);
 };
 
-const client = new LotorBrowserClient({ baseUrl: "https://api.lotor.test", clientId: "public_consumer", fetch: fetcher });
+const client = new LotorBrowserClient({ baseUrl: "https://api.lotor.test", clientId: "public_consumer", publishableKey: "lp_sbx_public_consumer", fetch: fetcher });
 const challenge = await client.startPasswordless("person@example.test");
 assert.equal(challenge.challenge_id, "challenge_1");
 assert.equal((await client.verifyPasswordless(challenge.challenge_id, "123456")).authenticated, true);
@@ -123,6 +134,23 @@ assert.equal((await client.organizations())[0].name, "Personal workspace");
 assert.equal((await client.billing.createCheckoutSession({ organizationId: "organization_public", productId: "product_pro", priceId: "price_monthly", presentation: "hosted", successUrl: "https://app.example.test/success", cancelUrl: "https://app.example.test/cancel", idempotencyKey: "hosted" })).presentation, "hosted");
 assert.equal((await client.billing.createCheckoutSession({ organizationId: "organization_public", productId: "product_pro", priceId: "price_monthly", presentation: "custom", returnUrl: "https://app.example.test/return", idempotencyKey: "custom" })).presentation, "custom");
 assert.ok(requests.length >= 6);
+const gatewayRequests = [];
+const gateway = new LotorBrowserClient({
+  mode: "same-origin",
+  clientId: "public_consumer",
+  publishableKey: "lp_sbx_public_consumer",
+  csrfToken: () => "csrf-proof",
+  fetch: async (input, init = {}) => {
+    gatewayRequests.push({ input: String(input), init });
+    return new Response(JSON.stringify({ authenticated: true, subject: "user_1" }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+});
+assert.equal((await gateway.session()).authenticated, true);
+assert.equal(gatewayRequests[0].input, "/.lotor/v1/session");
+assert.equal(gatewayRequests[0].init.credentials, "same-origin");
+assert.equal(new Headers(gatewayRequests[0].init.headers).has("Authorization"), false);
 process.stdout.write("packed client passed fake cross-origin runtime exercise\\n");
 `);
 
