@@ -148,7 +148,7 @@ export async function createSubjectKeyRegistration(input: CreateSubjectKeyRegist
 
   const backupHash = new Uint8Array(await crypto.subtle.digest("SHA-256", encryptedBackup));
   const message = proofMessage([
-    encoder.encode("lotor-subject-key-v1"), encoder.encode(clientId), encoder.encode(subject),
+    encoder.encode("lotor-account-key-v1"), encoder.encode(subject),
     encoder.encode(keyId), encoder.encode(deviceId), encoder.encode("X25519"), encryptionPublicKey,
     encoder.encode("Ed25519"), signingPublicKey, encoder.encode(backupKDF ?? ""), backupSalt,
     backupNonce, backupHash,
@@ -198,6 +198,102 @@ export async function unlockSubjectKeyBackup(record: SubjectKeyRecord, passphras
     throw new Error("could not unlock subject key backup");
   } finally {
     derived.fill(0);
+  }
+}
+
+export interface ClaimTransferMaterial {
+  encryptedPrivateBundle: Uint8Array;
+  boxPublicKey: Uint8Array;
+  nonce: Uint8Array;
+  aadHash: string;
+  associatedData: Uint8Array;
+  encryptionPublicKey: Uint8Array;
+  signingPublicKey: Uint8Array;
+  keyId: string;
+}
+
+export async function createClaimTransferKey(): Promise<{ publicKey: string; privateKey: CryptoKey }> {
+  const pair = await webCrypto().subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]) as CryptoKeyPair;
+  return {
+    publicKey: base64url(new Uint8Array(await webCrypto().subtle.exportKey("raw", pair.publicKey))),
+    privateKey: pair.privateKey,
+  };
+}
+
+export async function claimTransferredSubjectKey(input: {
+  clientId: string;
+  subject: string;
+  claimId: string;
+  passphrase: string;
+  transferPrivateKey: CryptoKey;
+  transfer: ClaimTransferMaterial;
+}): Promise<{ request: SubjectKeyRegistrationRequest; keys: DeviceKeyMaterial }> {
+  const crypto = webCrypto();
+  if (input.passphrase.length < 12) throw new Error("a passphrase of at least 12 characters is required");
+  if (input.transfer.boxPublicKey.length !== 32 || input.transfer.nonce.length !== 12 || input.transfer.encryptionPublicKey.length !== 32 || input.transfer.signingPublicKey.length !== 32) {
+    throw new Error("invalid key claim transfer material");
+  }
+  const aadDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(input.transfer.associatedData)));
+  const expectedAADHash = Array.from(aadDigest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  if (expectedAADHash !== input.transfer.aadHash) throw new Error("key claim transfer context mismatch");
+  const boxPublicKey = await crypto.subtle.importKey("raw", buffer(input.transfer.boxPublicKey), { name: "X25519" }, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "X25519", public: boxPublicKey }, input.transferPrivateKey, 256));
+  let encryptionPrivateRaw = new Uint8Array();
+  let signingSeed = new Uint8Array();
+  try {
+    const sharedKey = await crypto.subtle.importKey("raw", buffer(shared), "HKDF", false, ["deriveKey"]);
+    const wrappingKey = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(), info: buffer(input.transfer.associatedData) }, sharedKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buffer(input.transfer.nonce), additionalData: buffer(input.transfer.associatedData) }, wrappingKey, buffer(input.transfer.encryptedPrivateBundle));
+    const bundle = JSON.parse(new TextDecoder().decode(plaintext)) as Record<string, unknown>;
+    if (typeof bundle.encryption_private_key !== "string" || typeof bundle.signing_private_seed !== "string") throw new Error("invalid private key claim bundle");
+    encryptionPrivateRaw = new Uint8Array(decodeBase64url(bundle.encryption_private_key));
+    signingSeed = new Uint8Array(decodeBase64url(bundle.signing_private_seed));
+    if (encryptionPrivateRaw.length !== 32 || signingSeed.length !== 32) throw new Error("invalid private key claim bundle");
+    const encryptionPrivateKey = await crypto.subtle.importKey("jwk", {
+      kty: "OKP", crv: "X25519", d: base64url(encryptionPrivateRaw), x: base64url(input.transfer.encryptionPublicKey),
+      ext: true, key_ops: ["deriveBits"],
+    }, { name: "X25519" }, true, ["deriveBits"]);
+    const signingPrivateKey = await crypto.subtle.importKey("jwk", {
+      kty: "OKP", crv: "Ed25519", d: base64url(signingSeed), x: base64url(input.transfer.signingPublicKey),
+      ext: true, key_ops: ["sign"],
+    }, { name: "Ed25519" }, true, ["sign"]);
+    const backupSalt = crypto.getRandomValues(new Uint8Array(16));
+    const backupNonce = crypto.getRandomValues(new Uint8Array(12));
+    const derived = await scryptAsync(encoder.encode(input.passphrase), backupSalt, { N: 65536, r: 8, p: 1, dkLen: 32 });
+    let encryptedBackup: Uint8Array;
+    try {
+      const backupKey = await crypto.subtle.importKey("raw", buffer(derived), "AES-GCM", false, ["encrypt"]);
+      const backupPayload = encoder.encode(JSON.stringify({
+        version: 1, key_id: input.transfer.keyId, device_id: `claim:${input.claimId}`,
+        encryption_public_key: base64url(input.transfer.encryptionPublicKey), signing_public_key: base64url(input.transfer.signingPublicKey),
+        encryption_private_key: base64url(new Uint8Array(await crypto.subtle.exportKey("pkcs8", encryptionPrivateKey))),
+        signing_private_key: base64url(new Uint8Array(await crypto.subtle.exportKey("pkcs8", signingPrivateKey))),
+      }));
+      encryptedBackup = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: backupNonce }, backupKey, backupPayload));
+    } finally {
+      derived.fill(0);
+    }
+    const backupHash = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(encryptedBackup)));
+    const message = proofMessage([
+      encoder.encode("lotor-account-key-v1"), encoder.encode(input.subject),
+      encoder.encode(input.transfer.keyId), encoder.encode(`claim:${input.claimId}`), encoder.encode("X25519"), input.transfer.encryptionPublicKey,
+      encoder.encode("Ed25519"), input.transfer.signingPublicKey, encoder.encode("scrypt"), backupSalt, backupNonce, backupHash,
+    ], 1);
+    const proof = new Uint8Array(await crypto.subtle.sign("Ed25519", signingPrivateKey, buffer(message)));
+    return {
+      request: {
+        key_id: input.transfer.keyId, device_id: `claim:${input.claimId}`, encryption_algorithm: "X25519",
+        encryption_public_key: base64url(input.transfer.encryptionPublicKey), signing_algorithm: "Ed25519",
+        signing_public_key: base64url(input.transfer.signingPublicKey), encrypted_private_key_backup: base64url(encryptedBackup),
+        backup_kdf: "scrypt", backup_salt: base64url(backupSalt), backup_nonce: base64url(backupNonce), backup_format_version: 1,
+        proof: base64url(proof),
+      },
+      keys: { keyId: input.transfer.keyId, deviceId: `claim:${input.claimId}`, encryptionPrivateKey, signingPrivateKey },
+    };
+  } finally {
+    shared.fill(0);
+    encryptionPrivateRaw.fill(0);
+    signingSeed.fill(0);
   }
 }
 
@@ -302,6 +398,75 @@ export interface EncryptedResourceEnvelope {
   issuerSigningPublicKey: Uint8Array;
   issuerKeyStatus: "active" | "revoked";
   signature: Uint8Array;
+}
+
+export interface ResourceSessionKeyRequest {
+  publicKey: string;
+  clientNonce: string;
+  privateKey: CryptoKey;
+}
+
+export async function createResourceSessionKeyRequest(): Promise<ResourceSessionKeyRequest> {
+  const crypto = webCrypto();
+  const keys = await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]) as CryptoKeyPair;
+  return {
+    publicKey: base64url(new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey))),
+    clientNonce: base64url(crypto.getRandomValues(new Uint8Array(24))),
+    privateKey: keys.privateKey,
+  };
+}
+
+export async function unwrapResourceSessionEnvelope(
+  envelope: import("./types.js").ResourceSessionEnvelope,
+  request: ResourceSessionKeyRequest,
+  expectedResource: string,
+  now = Date.now(),
+): Promise<Uint8Array> {
+  const crypto = webCrypto();
+  if (envelope.resource !== expectedResource) {
+    throw new Error("resource session envelope resource does not match request");
+  }
+  if (envelope.expiresAt <= now * 1_000) {
+    throw new Error("resource session envelope has expired");
+  }
+  const aad = decodeBase64url(envelope.associatedData);
+  const expectedHash = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(aad)));
+  const actualHash = envelope.aadHash.toLowerCase();
+  if (actualHash !== [...expectedHash].map((value) => value.toString(16).padStart(2, "0")).join("")) {
+    throw new Error("resource session envelope AAD hash does not match");
+  }
+  const fields = new TextDecoder().decode(aad).split("\x00");
+  const bindingInput = new TextEncoder().encode(`${expectedResource}\x00${request.publicKey}\x00${request.clientNonce}\x00${envelope.expiresAt}`);
+  const bindingHash = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(bindingInput)));
+  const expectedKeyId = `session:${[...bindingHash].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+  if (fields.length !== 13 || fields[0] !== "lotor-resource-envelope-v1" || fields[4] !== envelope.keyResource ||
+      Number(fields[5]) !== envelope.keyVersion || fields[7] !== expectedKeyId) {
+    throw new Error("resource session envelope is not bound to this request");
+  }
+  const ephemeral = await crypto.subtle.importKey("raw", buffer(decodeBase64url(envelope.ephemeralPublicKey)), { name: "X25519" }, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "X25519", public: ephemeral }, request.privateKey, 256));
+  try {
+    const sharedKey = await crypto.subtle.importKey("raw", buffer(shared), "HKDF", false, ["deriveKey"]);
+    const wrappingKey = await crypto.subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt: buffer(new Uint8Array()), info: buffer(aad) },
+      sharedKey,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"],
+    );
+    const plaintext = new Uint8Array(await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: buffer(decodeBase64url(envelope.nonce)), additionalData: buffer(aad) },
+      wrappingKey,
+      buffer(decodeBase64url(envelope.ciphertext)),
+    ));
+    if (plaintext.length !== 32) {
+      plaintext.fill(0);
+      throw new Error("resource session envelope did not contain a 32-byte key");
+    }
+    return plaintext;
+  } finally {
+    shared.fill(0);
+  }
 }
 
 export async function unwrapResourceEnvelope(clientId: string, envelope: EncryptedResourceEnvelope, privateKey: CryptoKey): Promise<Uint8Array> {

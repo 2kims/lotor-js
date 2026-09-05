@@ -1,6 +1,13 @@
-import { BrowserTransport, LotorBrowserError, type BrowserFetch } from "./transport.js";
+import {
+  BrowserTransport,
+  LotorBrowserError,
+  SameOriginBrowserTransport,
+  type BrowserFetch,
+  type BrowserRequestTransport,
+  type CSRFTokenProvider,
+} from "./transport.js";
 import * as decode from "./decode.js";
-import { createResourceEnvelope, createSubjectKeyRegistration, unlockSubjectKeyBackup, type DeviceKeyMaterial } from "./key-access.js";
+import { claimTransferredSubjectKey, createClaimTransferKey, createSubjectKeyRegistration, unlockSubjectKeyBackup } from "./key-access.js";
 import {
   MemoryTokenStore,
   type ApplicationSession,
@@ -16,24 +23,13 @@ import {
   type SubjectKeyEnrollment,
   type SubjectKeyMutation,
   type SubjectKeyRecord,
-  type ResourceGrantMutation,
-  type ResourceGrantInput,
-  type ResourceKeyMutation,
-  type ResourceKeyVersionInput,
-  type ResourceMember,
-  type EncryptedInvitationMutation,
-  type LinkPreflightInput,
-  type LinkPreflight,
-  type LinkSendInput,
-  type LinkSendResult,
-  type SubjectKeyCredentials,
-  type EnsureEncryptedResourceInput,
-  type EnsureEncryptedResourceResult,
-  type EncryptedResourceLinkInput,
-  type EncryptedResourceLinkResult,
-  type KeyProvisioningJobList,
-  type ProvisionEncryptedResourceLinksInput,
-  type KeyProvisioningMutation,
+  type ResourceLinkChange,
+  type ResourceLinkCandidateSearchInput,
+  type ResourceLinkCandidateSearchResult,
+  type ResourceLinkPreflight,
+  type ResourceLinkSendInput,
+  type ResourceLinkSendResult,
+  type ResourceLinkResult,
   type UnlinkResult,
   type ResourceCollaborationPolicyOverride,
   type ResourceCollaborationPolicyMutation,
@@ -44,21 +40,52 @@ import {
   type AccountInvitationMutation,
   type AccountResourceList,
   type ResourceInvitationMutation,
-  type ResourceCollaboratorMutation,
+  type ClaimSubjectKeyInput,
+  type ClaimedSubjectKey,
+  type ResourceLinkEnvelopeSubmission,
+  type OrganizationE2EEPolicy,
+  type ResourceSessionEnvelope,
+  type EncryptionAction,
+  type EncryptionActionMutation,
+  type ResourcePayloadAccessLease,
+  type ResourcePayloadManifest,
+  type ResourcePayloadMutation,
+  type ResourcePayloadUploadInput,
+  type ResourcePayloadUploadIntent,
+  type DurableOperation,
+  type ResourceLifecycleFence,
+  type ResourceMoveInput,
+  type ResourceDeleteInput,
 } from "./types.js";
 
-export interface LotorBrowserOptions {
-  /** Absolute Lotor public API origin, for example https://api.example.com. */
-  baseUrl: string;
+interface LotorBrowserCommonOptions {
   clientId: string;
-  tokenStore?: TokenStore;
-  /** Allows HTTP only for localhost, 127.0.0.0/8, or ::1 development endpoints. */
-  allowInsecureLoopback?: boolean;
+  /** Browser-safe key scoped to the same application and live/sandbox mode as clientId. */
+  publishableKey: string;
   fetch?: BrowserFetch;
 }
 
+export type LotorBrowserOptions = LotorBrowserCommonOptions & ({
+  /** Cross-origin/headless public API mode. */
+  mode?: "public";
+  /** Absolute Lotor public API origin, for example https://api.example.com. */
+  baseUrl: string;
+  tokenStore?: TokenStore;
+  /** Allows HTTP only for localhost, 127.0.0.0/8, or ::1 development endpoints. */
+  allowInsecureLoopback?: boolean;
+  csrfToken?: never;
+} | {
+  /** Cookie-only mode through the Lotor gateway on the application's own origin. */
+  mode: "same-origin";
+  baseUrl?: never;
+  tokenStore?: never;
+  allowInsecureLoopback?: never;
+  /** Override only for non-DOM runtimes and tests; browsers read the Lotor CSRF cookie. */
+  csrfToken?: CSRFTokenProvider;
+});
+
 function required(value: string, name: string): string {
-  const normalized = value.trim();
+  const normalized = value?.trim() ?? "";
   if (normalized === "") throw new Error(`${name} is required`);
   return normalized;
 }
@@ -96,45 +123,28 @@ function safeRedirectUrl(value: string, name: string): string {
   return url.toString();
 }
 
-async function stableOwnerGrantId(resource: string, subject: string, keyId: string): Promise<string> {
-  const value = new TextEncoder().encode(`${resource}\u0000${subject}\u0000${keyId}`);
-  const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", value));
-  const suffix = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
-  return `grant_owner_${suffix}`;
-}
-
-async function resolveSubjectKey(
-  keys: SubjectKeyRecord[],
-  credentials: SubjectKeyCredentials,
-): Promise<{ record: SubjectKeyRecord; material: DeviceKeyMaterial }> {
-  if (credentials.keyMaterial !== undefined) {
-    const record = keys.find((key) =>
-      key.keyId === credentials.keyMaterial.keyId &&
-      key.deviceId === credentials.keyMaterial.deviceId &&
-      key.status === "active"
-    );
-    if (record === undefined) throw new Error("provided Lotor subject key is not active for this session");
-    return { record, material: credentials.keyMaterial };
-  }
-  const record = keys.find((key) => key.status === "active" && key.encryptedPrivateKeyBackup.length > 0);
-  if (record === undefined) throw new Error("no recoverable active Lotor subject key is enrolled");
-  return { record, material: await unlockSubjectKeyBackup(record, credentials.passphrase) };
-}
-
 export class LotorBrowserClient {
   readonly clientId: string;
+  readonly publishableKey: string;
   readonly billing: { createCheckoutSession: (input: CreateCheckoutSessionInput) => Promise<CheckoutSession> };
-  private readonly transport: BrowserTransport;
+  private readonly transport: BrowserRequestTransport;
   private readonly tokenStore: TokenStore;
   private readonly applicationPath: string;
+  private readonly sameOrigin: boolean;
+  private readonly fetcher: BrowserFetch;
 
   constructor(options: LotorBrowserOptions) {
     this.clientId = bounded(options.clientId, "clientId", 256);
+    this.publishableKey = bounded(options.publishableKey, "publishableKey", 512);
     const fetcher = options.fetch ?? globalThis.fetch?.bind(globalThis);
     if (fetcher === undefined) throw new Error("a browser Fetch implementation is required");
-    this.tokenStore = options.tokenStore ?? new MemoryTokenStore();
-    this.transport = new BrowserTransport(publicBaseUrl(options.baseUrl, options.allowInsecureLoopback === true), fetcher, this.tokenStore);
-    this.applicationPath = `/v1/public/applications/${encodeURIComponent(this.clientId)}`;
+    this.fetcher = fetcher;
+    this.sameOrigin = options.mode === "same-origin";
+    this.tokenStore = options.mode === "same-origin" ? new MemoryTokenStore() : options.tokenStore ?? new MemoryTokenStore();
+    this.transport = options.mode === "same-origin"
+      ? new SameOriginBrowserTransport(fetcher, this.publishableKey, options.csrfToken)
+      : new BrowserTransport(publicBaseUrl(options.baseUrl, options.allowInsecureLoopback === true), fetcher, this.tokenStore, this.publishableKey);
+    this.applicationPath = this.sameOrigin ? "/.lotor/v1" : `/v1/public/applications/${encodeURIComponent(this.clientId)}`;
     this.billing = { createCheckoutSession: (input) => this.createCheckoutSession(input) };
   }
 
@@ -154,13 +164,20 @@ export class LotorBrowserClient {
   }
 
   async verifyPasswordless(challengeId: string, code: string): Promise<AuthenticatedSession> {
-    const verified = decode.verification(await this.transport.request(`${this.applicationPath}/auth/passwordless/verify`, {
+    const response = await this.transport.requestWithMetadata<unknown>(`${this.applicationPath}/auth/passwordless/verify`, {
       method: "POST",
       body: JSON.stringify({
         challenge_id: bounded(challengeId, "challengeId", 256),
         code: bounded(code, "code", 64),
       }),
-    }));
+    });
+    if (this.sameOrigin) return decode.sameOriginVerification(response.body);
+    const verified = decode.verification(response.body);
+    const claimToken = response.headers.get("Lotor-Key-Claim-Token")?.trim();
+    if (verified.session.e2ee?.claimRequired) {
+      if (!claimToken) throw new Error("Lotor key claim response is missing its credential");
+      verified.session.e2ee.claimToken = claimToken;
+    }
     await this.tokenStore.setToken(verified.token);
     return verified.session;
   }
@@ -170,7 +187,7 @@ export class LotorBrowserClient {
       return decode.session(await this.transport.request(`${this.applicationPath}/session`, {}, true));
     } catch (error) {
       if (error instanceof LotorBrowserError && error.status === 401) {
-        await this.tokenStore.clearToken();
+        if (!this.sameOrigin) await this.tokenStore.clearToken();
         return { authenticated: false };
       }
       throw error;
@@ -181,7 +198,7 @@ export class LotorBrowserClient {
     try {
       await this.transport.request(`${this.applicationPath}/session`, { method: "DELETE" }, true);
     } finally {
-      await this.tokenStore.clearToken();
+      if (!this.sameOrigin) await this.tokenStore.clearToken();
     }
   }
 
@@ -202,8 +219,125 @@ export class LotorBrowserClient {
         resource_type: bounded(input.resourceType, "resourceType", 128),
         ...(input.displayName === undefined ? {} : { display_name: bounded(input.displayName, "displayName", 512) }),
         ...(input.parent === undefined ? {} : { parent: bounded(input.parent, "parent", 512) }),
+        ...(input.keyScope === undefined ? {} : { key_scope: input.keyScope }),
       }),
     }, true));
+  }
+
+  async resource(resource: string): Promise<import("./types.js").CollaborationResource> {
+    return decode.collaborationResource(await this.transport.request(
+      `${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}`,
+      {},
+      true,
+    ));
+  }
+
+  async moveResource(resource: string, input: ResourceMoveInput, idempotencyKey: string): Promise<DurableOperation> {
+	return this.resourceLifecycleOperation(resource, "move", input, idempotencyKey);
+  }
+
+  async disableResource(resource: string, input: ResourceLifecycleFence, idempotencyKey: string): Promise<DurableOperation> {
+	return this.resourceLifecycleOperation(resource, "disable", input, idempotencyKey);
+  }
+
+  async restoreResource(resource: string, input: ResourceLifecycleFence, idempotencyKey: string): Promise<DurableOperation> {
+	return this.resourceLifecycleOperation(resource, "restore", input, idempotencyKey);
+  }
+
+  async deleteResource(resource: string, input: ResourceDeleteInput, idempotencyKey: string): Promise<DurableOperation> {
+	return decode.durableOperation(await this.transport.request(
+		`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}`,
+		{ method: "DELETE", headers: { "X-Lotor-Request": "lotor-js-v1", "Idempotency-Key": bounded(idempotencyKey, "idempotencyKey", 256) }, body: JSON.stringify({
+			expected_revision: input.expectedRevision, expected_lifecycle_generation: input.expectedLifecycleGeneration, subtree: input.subtree,
+		}) }, true,
+	));
+  }
+
+  async operation(operationId: string): Promise<DurableOperation> {
+	return decode.durableOperation(await this.transport.request(
+		`${this.applicationPath}/operations/${encodeURIComponent(bounded(operationId, "operationId", 256))}`, {}, true,
+	));
+  }
+
+  private async resourceLifecycleOperation(resource: string, action: "move" | "disable" | "restore", input: ResourceLifecycleFence & { parent?: string }, idempotencyKey: string): Promise<DurableOperation> {
+	return decode.durableOperation(await this.transport.request(
+		`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/${action}`,
+		{ method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1", "Idempotency-Key": bounded(idempotencyKey, "idempotencyKey", 256) }, body: JSON.stringify({
+			expected_revision: input.expectedRevision, expected_lifecycle_generation: input.expectedLifecycleGeneration,
+			...(input.parent === undefined ? {} : { parent: bounded(input.parent, "parent", 512) }),
+		}) }, true,
+	));
+  }
+
+  async resourcePayload(resource: string, slot: string): Promise<ResourcePayloadManifest> {
+    return decode.resourcePayloadManifest(await this.transport.request(this.resourcePayloadPath(resource, slot), {}, true));
+  }
+
+  async createResourcePayloadUpload(resource: string, slot: string, input: ResourcePayloadUploadInput): Promise<ResourcePayloadUploadIntent> {
+    const result = await this.transport.requestWithMetadata<unknown>(`${this.resourcePayloadPath(resource, slot)}/uploads`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
+        schema_id: input.schemaId, expected_payload_version: input.expectedPayloadVersion,
+        representation: input.representation, object_digest: input.objectDigest, object_size: input.objectSize,
+        ...(input.representation === "encrypted-envelope-v1" ? {
+          encryption_suite: input.encryptionSuite, key_binding_ref: input.keyBindingRef, key_version: input.keyVersion,
+          wrapped_payload_key: input.wrappedPayloadKey, aad_hash: input.aadHash, encryptor_subject: input.encryptorSubject,
+          encryptor_key_id: input.encryptorKeyId, encryption_receipt: input.encryptionReceipt,
+        } : {}),
+        resource_revision: input.resourceRevision, lifecycle_generation: input.lifecycleGeneration,
+      }),
+    }, true);
+    const intent = decode.resourcePayloadUploadIntent(result.body);
+    const token = result.headers.get("Lotor-Payload-Token")?.trim();
+    if (!this.sameOrigin && !token) throw new Error("Lotor resource payload upload response is missing its credential");
+    return token ? { ...intent, token } : intent;
+  }
+
+  async commitResourcePayload(resource: string, slot: string, intent: ResourcePayloadUploadIntent): Promise<ResourcePayloadManifest> {
+    const headers: Record<string, string> = { "X-Lotor-Request": "lotor-js-v1" };
+    if (!this.sameOrigin) headers["Lotor-Payload-Token"] = bounded(intent.token ?? "", "payload token", 512);
+    return decode.resourcePayloadManifest(await this.transport.request(`${this.resourcePayloadPath(resource, slot)}/commits`, {
+      method: "POST", headers, body: JSON.stringify({ expected_payload_version: intent.expectedPayloadVersion }),
+    }, true));
+  }
+
+  async uploadResourcePayloadObject(intent: ResourcePayloadUploadIntent, object: Uint8Array): Promise<void> {
+    if (object.length === 0) throw new Error("resource payload object must not be empty");
+    const response = await this.fetcher(intent.uploadUrl, {
+      method: intent.uploadMethod, headers: intent.requiredHeaders, body: object.slice().buffer,
+      credentials: "omit", redirect: "error",
+    });
+    if (!response.ok) throw new LotorBrowserError(`Lotor resource payload upload failed with status ${response.status}`, response.status, "payload_upload_failed");
+  }
+
+  async accessResourcePayload(resource: string, slot: string, payloadVersion?: number): Promise<ResourcePayloadAccessLease> {
+    return decode.resourcePayloadAccessLease(await this.transport.request(`${this.resourcePayloadPath(resource, slot)}/access`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" },
+      body: JSON.stringify(payloadVersion === undefined ? {} : { payload_version: payloadVersion }),
+    }, true));
+  }
+
+  async rewrapResourcePayload(resource: string, slot: string, input: import("./types.js").ResourcePayloadRewrapInput): Promise<import("./types.js").ResourcePayloadRewrapResult> {
+    return decode.resourcePayloadRewrapResult(await this.transport.request(`${this.resourcePayloadPath(resource, slot)}/rewraps`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
+        payload_version: input.payloadVersion, expected_wrap_revision: input.expectedWrapRevision,
+        key_binding_ref: input.keyBindingRef, previous_key_version: input.previousKeyVersion, key_version: input.keyVersion,
+        resource_revision: input.resourceRevision, lifecycle_generation: input.lifecycleGeneration,
+        ...(input.wrappedPayloadKey === undefined ? {} : {
+          wrapped_payload_key: input.wrappedPayloadKey, rewrapper_subject: input.rewrapperSubject,
+          rewrapper_key_id: input.rewrapperKeyId, rewrap_receipt: input.rewrapReceipt,
+        }),
+      }),
+    }, true));
+  }
+
+  async deleteResourcePayload(resource: string, slot: string, idempotencyKey: string): Promise<ResourcePayloadMutation> {
+    return decode.resourcePayloadMutation(await this.transport.request(this.resourcePayloadPath(resource, slot), {
+      method: "DELETE", headers: { "X-Lotor-Request": "lotor-js-v1", "Idempotency-Key": bounded(idempotencyKey, "idempotencyKey", 256) },
+    }, true));
+  }
+
+  private resourcePayloadPath(resource: string, slot: string): string {
+    return `${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/payloads/${encodeURIComponent(bounded(slot, "slot", 128))}`;
   }
 
   async enrollSubjectKey(input: EnrollSubjectKeyInput): Promise<SubjectKeyEnrollment> {
@@ -229,222 +363,162 @@ export class LotorBrowserClient {
     return decode.subjectKeyMutation(await this.transport.request(`${this.applicationPath}/key-access/subject-keys/${encodeURIComponent(bounded(keyId, "keyId", 256))}`, { method: "DELETE", headers: { "X-Lotor-Request": "lotor-js-v1" } }, true));
   }
 
-  async resourceMembers(scope: string, resource: string): Promise<ResourceMember[]> {
-    const normalizedScope = bounded(scope, "scope", 512);
-    return decode.resourceMembers(await this.transport.request(`${this.applicationPath}/key-access/resource-members?scope=${encodeURIComponent(normalizedScope)}&resource=${encodeURIComponent(bounded(resource, "resource", 512))}`, {}, true), normalizedScope);
-  }
-
-  async createResourceKeyVersion(input: ResourceKeyVersionInput): Promise<ResourceKeyMutation> {
-    if (!Number.isSafeInteger(input.version) || input.version < 1) throw new Error("version must be a positive safe integer");
-    return decode.resourceKeyMutation(await this.transport.request(`${this.applicationPath}/key-access/resource-key-versions`, {
-      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
-        scope: bounded(input.scope, "scope", 512), key_resource: bounded(input.keyResource, "keyResource", 512),
-        version: input.version, algorithm: input.algorithm ?? "AES-256-GCM",
+  async claimSubjectKey(input: ClaimSubjectKeyInput): Promise<ClaimedSubjectKey> {
+    const session = await this.session();
+    if (!session.authenticated) throw new LotorBrowserError("Lotor request requires authentication", 401, "unauthenticated");
+    const claimId = bounded(input.claimId, "claimId", 256);
+    const headers: Record<string, string> = { "X-Lotor-Request": "lotor-js-v1" };
+    if (input.claimToken !== undefined) headers["Lotor-Key-Claim-Token"] = bounded(input.claimToken, "claimToken", 512);
+    if (!this.sameOrigin && headers["Lotor-Key-Claim-Token"] === undefined) throw new Error("claimToken is required in public API mode");
+    const claim = decode.publicKeyClaim(await this.transport.request(`${this.applicationPath}/key-access/claims/${encodeURIComponent(claimId)}`, { headers }, true));
+    const transferKey = await createClaimTransferKey();
+    const transfer = decode.publicKeyClaimTransfer(await this.transport.request(`${this.applicationPath}/key-access/claims/${encodeURIComponent(claimId)}/transfer`, {
+      method: "POST", headers, body: JSON.stringify({ browser_transfer_public_key: transferKey.publicKey }),
+    }, true), claim);
+    const material = await claimTransferredSubjectKey({
+      clientId: this.clientId, subject: session.subject, claimId, passphrase: input.passphrase,
+      transferPrivateKey: transferKey.privateKey,
+      transfer: {
+        encryptedPrivateBundle: transfer.encryptedPrivateBundle, boxPublicKey: transfer.boxPublicKey,
+        nonce: transfer.nonce, aadHash: transfer.aadHash, associatedData: transfer.associatedData,
+        encryptionPublicKey: transfer.encryptionPublicKey, signingPublicKey: transfer.signingPublicKey, keyId: transfer.keyId,
+      },
+    });
+    const completed = decode.publicKeyClaim(await this.transport.request(`${this.applicationPath}/key-access/claims/${encodeURIComponent(claimId)}/complete`, {
+      method: "POST", headers, body: JSON.stringify({
+        encrypted_private_key_backup: material.request.encrypted_private_key_backup,
+        backup_kdf: material.request.backup_kdf, backup_salt: material.request.backup_salt,
+        backup_nonce: material.request.backup_nonce, backup_format_version: material.request.backup_format_version,
+        possession_proof: material.request.proof,
       }),
     }, true));
-  }
-
-  async prepareResourceGrant(input: ResourceGrantInput): Promise<ResourceGrantMutation> {
-    if (!Number.isSafeInteger(input.keyVersion) || input.keyVersion < 1) throw new Error("keyVersion must be a positive safe integer");
-    return decode.resourceGrantMutation(await this.transport.request(`${this.applicationPath}/key-access/resource-grants`, {
-      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
-        grant_id: bounded(input.grantId, "grantId", 256), scope: bounded(input.scope, "scope", 512),
-        resource: bounded(input.resource, "resource", 512), subject: bounded(input.subject, "subject", 512),
-        relation: bounded(input.relation, "relation", 128), key_resource: bounded(input.keyResource, "keyResource", 512),
-        key_version: input.keyVersion, recipient_key_id: bounded(input.recipientKeyId, "recipientKeyId", 256),
-        ...(input.invitationId === undefined ? {} : { invitation_id: bounded(input.invitationId, "invitationId", 256) }),
-      }),
-    }, true));
-  }
-
-  async submitResourceEnvelope(input: import("./key-access.js").ResourceEnvelopeRequest): Promise<ResourceGrantMutation> {
-    return decode.resourceGrantMutation(await this.transport.request(`${this.applicationPath}/key-access/resource-envelopes`, { method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify(input) }, true));
+    if (completed.status !== "completed" || completed.keyId !== transfer.keyId) throw new Error("Lotor key claim did not complete");
+    return { ...material.keys, accepted: true, reason: "claimed", keyId: completed.keyId, logSeq: 0 };
   }
 
   async resourceEnvelope(resource: string): Promise<import("./key-access.js").EncryptedResourceEnvelope> {
     return decode.resourceEnvelope(await this.transport.request(`${this.applicationPath}/key-access/resource-envelope?resource=${encodeURIComponent(bounded(resource, "resource", 512))}`, {}, true));
   }
 
-  async acceptEncryptedInvitation(ticket: string, recipientKeyId: string, idempotencyKey: string): Promise<EncryptedInvitationMutation> {
-    return decode.encryptedInvitationMutation(await this.transport.request(`${this.applicationPath}/key-access/invitations/accept`, {
-      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({ ticket: bounded(ticket, "ticket", 512), recipient_key_id: bounded(recipientKeyId, "recipientKeyId", 256), idempotency_key: bounded(idempotencyKey, "idempotencyKey", 256) }),
+  async resourceSessionEnvelope(resource: string, sessionPublicKey: string, clientNonce: string): Promise<ResourceSessionEnvelope> {
+    return decode.resourceSessionEnvelope(await this.transport.request(`${this.applicationPath}/key-access/resource-envelope`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
+        resource: bounded(resource, "resource", 512), session_public_key: bounded(sessionPublicKey, "session public key", 128),
+        client_nonce: bounded(clientNonce, "client nonce", 256),
+      }),
     }, true));
   }
 
-  async preflightResourceLinks(resource: string, input: LinkPreflightInput, idempotencyKey: string): Promise<LinkPreflight> {
-    return decode.linkPreflight(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/links/preflight`, {
-      method: "POST", headers: { "Idempotency-Key": bounded(idempotencyKey, "idempotencyKey", 256), "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify(input),
+  async resourceSession(resource: string): Promise<import("./types.js").ResourceSession> {
+    const { createResourceSessionKeyRequest, unwrapResourceSessionEnvelope } = await import("./key-access.js");
+    const request = await createResourceSessionKeyRequest();
+    const envelope = await this.resourceSessionEnvelope(resource, request.publicKey, request.clientNonce);
+    return { ...envelope, resourceKey: await unwrapResourceSessionEnvelope(envelope, request, resource) };
+  }
+
+  async organizationE2EEPolicy(organization: string): Promise<OrganizationE2EEPolicy> {
+    return decode.organizationE2EEPolicy(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 512))}/e2ee`, {}, true));
+  }
+
+  async configureOrganizationE2EE(organization: string, input: import("./types.js").OrganizationE2EEPolicyInput): Promise<OrganizationE2EEPolicy> {
+    return decode.organizationE2EEPolicy(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 512))}/e2ee`, {
+      method: "PUT", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
+        required_account_custody: input.requiredAccountCustody,
+        resource_key_executor: input.resourceKeyExecutor,
+        automation_executor: input.automationExecutor,
+        ...(input.functionBindingId === undefined ? {} : { function_binding_id: bounded(input.functionBindingId, "function binding", 256) }),
+        resource_key_policy: input.resourceKeyPolicy,
+      }),
     }, true));
   }
 
-  async sendResourceLinks(resource: string, input: LinkSendInput, idempotencyKey?: string): Promise<LinkSendResult> {
-    const headers: Record<string, string> = { "X-Lotor-Request": "lotor-js-v1" };
-    if (idempotencyKey !== undefined) headers["Idempotency-Key"] = bounded(idempotencyKey, "idempotencyKey", 256);
-    return decode.linkSendResult(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/links/send`, { method: "POST", headers, body: JSON.stringify(input) }, true));
+  async encryptionActions(): Promise<EncryptionAction[]> {
+    return decode.encryptionActions(await this.transport.request(`${this.applicationPath}/me/encryption-actions`, {}, true));
   }
 
-  async ensureEncryptedResource(input: EnsureEncryptedResourceInput): Promise<EnsureEncryptedResourceResult> {
-    if (input.resourceKey.length !== 32) throw new Error("resourceKey must contain 32 bytes");
-    const scope = bounded(input.scope, "scope", 512);
-    const resource = bounded(input.resource, "resource", 512);
-    const keyResource = bounded(input.keyResource ?? input.resource, "keyResource", 512);
-    const relation = bounded(input.relation ?? "owner", "relation", 128);
-    const version = input.version ?? 1;
-    if (!Number.isSafeInteger(version) || version < 1) throw new Error("version must be a positive safe integer");
-    try {
-      const existing = await this.resourceEnvelope(keyResource);
-      return { created: false, keyResource, version: existing.keyVersion, grantId: existing.grantId };
-    } catch (error) {
-      if (!(error instanceof LotorBrowserError) || error.status !== 404) throw error;
-    }
+  async completeEncryptionAction(jobId: string, revision: string, envelopes: ResourceLinkEnvelopeSubmission[]): Promise<EncryptionActionMutation> {
+    return decode.encryptionActionMutation(await this.transport.request(`${this.applicationPath}/me/encryption-actions/${encodeURIComponent(bounded(jobId, "job id", 256))}/complete`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({ revision: bounded(revision, "revision", 128),
+        envelopes: envelopes.map(wireResourceLinkEnvelope),
+      }),
+    }, true));
+  }
 
+  async completeEncryptionActionWithResourceKey(
+    action: EncryptionAction,
+    resourceKey: Uint8Array,
+    keyMaterial: import("./key-access.js").DeviceKeyMaterial,
+  ): Promise<EncryptionActionMutation> {
     const session = await this.session();
     if (!session.authenticated) throw new LotorBrowserError("Lotor request requires authentication", 401, "unauthenticated");
-    const { record: ownerKey, material: ownerMaterial } = await resolveSubjectKey(await this.subjectKeys(), input);
-    const grantId = await stableOwnerGrantId(keyResource, session.subject, ownerKey.keyId);
-    const resourceKey = input.resourceKey.slice();
-    try {
-      const keyMutation = await this.createResourceKeyVersion({ scope, keyResource, version });
-      if (!keyMutation.accepted) throw new Error(`Lotor rejected the resource key: ${keyMutation.reason}`);
-      const grantMutation = await this.prepareResourceGrant({
-        grantId, scope, resource, subject: session.subject, relation, keyResource,
-        keyVersion: version, recipientKeyId: ownerKey.keyId,
-      });
-      if (!grantMutation.accepted) throw new Error(`Lotor rejected the owner grant: ${grantMutation.reason}`);
+    const { createResourceEnvelope } = await import("./key-access.js");
+    const envelopes = await Promise.all(action.keyRequirements.map(async (requirement) => {
       const envelope = await createResourceEnvelope({
-        clientId: this.clientId, issuer: session.subject, issuerKeyId: ownerKey.keyId,
-        issuerSigningPrivateKey: ownerMaterial.signingPrivateKey,
+        clientId: this.clientId, issuer: session.subject, issuerKeyId: keyMaterial.keyId,
+        issuerSigningPrivateKey: keyMaterial.signingPrivateKey, resourceKey,
         member: {
-          grantId, scope, resource, subject: session.subject, relation, keyResource,
-          keyVersion: version, recipientKeyId: ownerKey.keyId,
-          recipientEncryptionPublicKey: ownerKey.encryptionPublicKey,
+          grantId: requirement.grantId, scope: requirement.keyResource, resource: requirement.resource,
+          subject: requirement.recipientSubject, relation: requirement.relation,
+          keyResource: requirement.keyResource, keyVersion: Number(requirement.keyVersion),
+          recipientKeyId: requirement.recipientKeyId,
+          recipientEncryptionPublicKey: requirement.publicKey,
         },
-        resourceKey,
       });
-      const submitted = await this.submitResourceEnvelope(envelope);
-      if (!submitted.accepted) throw new Error(`Lotor rejected the owner envelope: ${submitted.reason}`);
-      return { created: true, keyResource, version, grantId };
-    } finally {
-      resourceKey.fill(0);
-    }
+      return {
+        manifestItemId: requirement.manifestItemId, encryptionSuite: envelope.encryption_suite,
+        ciphertext: envelope.ciphertext, aadHash: envelope.aad_hash, issuer: envelope.issuer,
+        issuerKeyId: envelope.issuer_key_id, signature: envelope.signature,
+      };
+    }));
+    return this.completeEncryptionAction(action.id, action.revision, envelopes);
   }
 
-  async sendEncryptedResourceLinks(resource: string, input: EncryptedResourceLinkInput): Promise<EncryptedResourceLinkResult> {
-    if (input.resourceKey.length !== 32) throw new Error("resourceKey must contain 32 bytes");
-    const normalizedResource = bounded(resource, "resource", 512);
-    const preflight = await this.preflightResourceLinks(normalizedResource, {
-      relation: bounded(input.relation, "relation", 128),
-      targets: input.targets,
-      ...(input.ttlSeconds === undefined ? {} : { ttl_seconds: input.ttlSeconds }),
-    }, input.preflightIdempotencyKey);
-    const rejected = preflight.targets.find((target) => !target.allowed);
-    if (rejected !== undefined) throw new LotorBrowserError(rejected.message || "Lotor rejected a collaboration target", 409, rejected.reasonCode);
-
-    if (!preflight.encryption.required) {
-      const sent = await this.sendResourceLinks(normalizedResource, {
-        preflight_id: preflight.preflightId,
-        targets: preflight.targets.map((target) => ({ target_id: target.id })),
-      }, input.sendIdempotencyKey);
-      return { preflight, sent };
-    }
-    if (preflight.encryption.sourceEnvelope === undefined || preflight.encryption.keyResource === undefined) {
-      throw new LotorBrowserError("Lotor resource encryption is not bootstrapped", 409, "source_envelope_unavailable");
-    }
-
-    const session = await this.session();
-    if (!session.authenticated) throw new LotorBrowserError("Lotor request requires authentication", 401, "unauthenticated");
-    const { record: issuerKey, material: issuerMaterial } = await resolveSubjectKey(await this.subjectKeys(), input);
-    const source = preflight.encryption.sourceEnvelope;
-    const resourceKey = input.resourceKey.slice();
-    try {
-      const targets = await Promise.all(preflight.targets.map(async (target) => ({
-        target_id: target.id,
-        envelopes: await Promise.all(target.recipientKeys.map(async (recipient) => {
-          const envelope = await createResourceEnvelope({
-            clientId: this.clientId, issuer: session.subject, issuerKeyId: issuerKey.keyId,
-            issuerSigningPrivateKey: issuerMaterial.signingPrivateKey,
-            member: {
-              grantId: recipient.grantId, scope: preflight.encryption.keyResource!, resource: normalizedResource,
-              subject: recipient.subject, relation: preflight.relation,
-              keyResource: preflight.encryption.keyResource!, keyVersion: source.keyVersion,
-              recipientKeyId: recipient.keyId, recipientEncryptionPublicKey: recipient.publicKey,
-            },
-            resourceKey,
-          });
-          return {
-            grant_id: envelope.grant_id, recipient_subject: envelope.recipient_subject,
-            recipient_key_id: envelope.recipient_key_id, encryption_suite: envelope.encryption_suite,
-            ciphertext: envelope.ciphertext, aad_hash: envelope.aad_hash,
-            issuer_key_id: envelope.issuer_key_id, signature: envelope.signature,
-          };
-        })),
-      })));
-      const sent = await this.sendResourceLinks(normalizedResource, {
-        preflight_id: preflight.preflightId,
-        targets,
-      }, input.sendIdempotencyKey);
-      return { preflight, sent };
-    } finally {
-      resourceKey.fill(0);
-    }
+  async searchResourceLinkCandidates(resource: string, input: ResourceLinkCandidateSearchInput): Promise<ResourceLinkCandidateSearchResult> {
+    return decode.resourceLinkCandidates(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/link-candidates/search`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
+        query: bounded(input.query, "query", 256), relation: bounded(input.relation, "relation", 128),
+        ...(input.kinds === undefined ? {} : { kinds: input.kinds }), ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.cursor === undefined ? {} : { cursor: bounded(input.cursor, "cursor") }),
+      }),
+    }, true));
   }
 
-  async keyProvisioningJobs(resource: string): Promise<KeyProvisioningJobList> {
+  async preflightResourceLinks(resource: string, changes: ResourceLinkChange[]): Promise<ResourceLinkPreflight> {
     const normalizedResource = bounded(resource, "resource", 512);
-    return decode.keyProvisioningJobs(await this.transport.request(
-      `${this.applicationPath}/resources/${encodeURIComponent(normalizedResource)}/key-provisioning-jobs`,
-      {},
-      true,
-    ));
+    const wireChanges = changes.map((change) => ({
+      action: change.action, ...(change.linkId === undefined ? {} : { link_id: change.linkId }),
+      ...(change.collaborator === undefined ? {} : { collaborator: change.collaborator }),
+      ...(change.relation === undefined ? {} : { relation: change.relation }),
+      ...(change.subject === undefined ? {} : { subject: change.subject }), ...(change.email === undefined ? {} : { email: change.email }),
+      ...(change.subjectResource === undefined ? {} : { subject_resource: change.subjectResource }),
+      ...(change.subjectRelation === undefined ? {} : { subject_relation: change.subjectRelation }),
+      ...(change.provisioning === undefined ? {} : { provisioning: change.provisioning }),
+      ...(change.delivery === undefined ? {} : { delivery: change.delivery }), ...(change.cascade === undefined ? {} : { cascade: change.cascade }),
+    }));
+    const response = await this.transport.requestWithMetadata<unknown>(`${this.applicationPath}/resources/${encodeURIComponent(normalizedResource)}/links/preflight`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({ changes: wireChanges }),
+    }, true);
+    const token = response.headers.get("Lotor-Link-Token")?.trim();
+    if (!this.sameOrigin && !token) throw new Error("Lotor link preflight response is missing its token");
+    return { result: decode.resourceLinkResult(response.body), ...(token ? { token } : {}) };
   }
 
-  async provisionEncryptedResourceLinks(
-    resource: string,
-    input: ProvisionEncryptedResourceLinksInput,
-  ): Promise<KeyProvisioningMutation> {
-    if (input.resourceKey.length !== 32) throw new Error("resourceKey must contain 32 bytes");
+  async commitResourceLinks(resource: string, preflight: ResourceLinkPreflight, envelopes: ResourceLinkEnvelopeSubmission[] = []): Promise<ResourceLinkResult> {
+    const headers: Record<string, string> = { "X-Lotor-Request": "lotor-js-v1" };
+    if (!this.sameOrigin) headers["Lotor-Link-Token"] = bounded(preflight.token ?? "", "link token", 512);
+    return decode.resourceLinkResult(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/links/commit`, {
+      method: "POST", headers, body: JSON.stringify(envelopes.length === 0 ? {} : { envelopes: envelopes.map(wireResourceLinkEnvelope) }),
+    }, true));
+  }
+
+  async sendResourceLinks(resource: string, input: ResourceLinkSendInput): Promise<ResourceLinkSendResult> {
     const normalizedResource = bounded(resource, "resource", 512);
-    const pending = await this.keyProvisioningJobs(normalizedResource);
-    if (pending.jobs.length === 0) return { resource: normalizedResource, submitted: 0 };
-    if (pending.resource !== normalizedResource) throw new Error("Lotor returned provisioning jobs for another resource");
-    const session = await this.session();
-    if (!session.authenticated) throw new LotorBrowserError("Lotor request requires authentication", 401, "unauthenticated");
-    const { record: issuerKey, material: issuerMaterial } = await resolveSubjectKey(await this.subjectKeys(), input);
-    const resourceKey = input.resourceKey.slice();
-    try {
-      const envelopes = await Promise.all(pending.jobs.map(async (job) => {
-        const envelope = await createResourceEnvelope({
-          clientId: this.clientId, issuer: session.subject, issuerKeyId: issuerKey.keyId,
-          issuerSigningPrivateKey: issuerMaterial.signingPrivateKey,
-          member: {
-            grantId: job.grantId, scope: job.keyResource, resource: normalizedResource,
-            subject: job.subject, relation: job.relation, keyResource: job.keyResource,
-            keyVersion: job.keyVersion, recipientKeyId: job.recipientKeyId,
-            recipientEncryptionPublicKey: job.publicKey,
-          },
-          resourceKey,
-        });
-        return {
-          link_id: job.linkId, grant_id: envelope.grant_id,
-          recipient_subject: envelope.recipient_subject,
-          recipient_key_id: envelope.recipient_key_id,
-          encryption_suite: envelope.encryption_suite,
-          ciphertext: envelope.ciphertext, aad_hash: envelope.aad_hash,
-          issuer_key_id: envelope.issuer_key_id, signature: envelope.signature,
-        };
-      }));
-      return decode.keyProvisioningMutation(await this.transport.request(
-        `${this.applicationPath}/resources/${encodeURIComponent(normalizedResource)}/key-provisioning-jobs/commit`,
-        {
-          method: "POST",
-          headers: { "X-Lotor-Request": "lotor-js-v1" },
-          body: JSON.stringify({ envelopes }),
-        },
-        true,
-      ));
-    } finally {
-      resourceKey.fill(0);
-    }
+    const preflight = await this.preflightResourceLinks(normalizedResource, input.changes);
+    if (!preflight.result.committable) throw new LotorBrowserError(
+      preflight.result.failureReason ?? "Lotor rejected a collaboration change", 409,
+      preflight.result.failureReason ?? "link_denied",
+    );
+    return { preflight, committed: await this.commitResourceLinks(normalizedResource, preflight) };
   }
 
   async unlinkResource(resource: string, linkId: string, idempotencyKey?: string): Promise<UnlinkResult> {
@@ -548,15 +622,6 @@ export class LotorBrowserClient {
     return decode.resourceInvitationMutation(await this.transport.request(`${this.applicationPath}/invitations/accept`, { method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({ ticket: bounded(ticket, "ticket", 512) }) }, true));
   }
 
-  async updateResourceCollaborator(resource: string, collaborator: string, relation: string): Promise<ResourceCollaboratorMutation> {
-    return decode.collaboratorMutation(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/collaborators/${encodeURIComponent(bounded(collaborator, "collaborator", 512))}`, { method: "PATCH", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({ relation: bounded(relation, "relation", 128) }) }, true));
-  }
-
-  async deleteResourceCollaborator(resource: string, collaborator: string, options: { force?: boolean } = {}): Promise<ResourceCollaboratorMutation> {
-    const suffix = options.force === true ? "?force=true" : "";
-    return decode.collaboratorMutation(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/collaborators/${encodeURIComponent(bounded(collaborator, "collaborator", 512))}${suffix}`, { method: "DELETE", headers: { "X-Lotor-Request": "lotor-js-v1" } }, true));
-  }
-
   async setResourceCollaborationPolicy(resource: string, input: ResourceCollaborationPolicyOverride): Promise<ResourceCollaborationPolicyMutation> {
     return decode.resourcePolicyMutation(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/collaboration-policy`, { method: "PUT", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify(input) }, true));
   }
@@ -581,4 +646,11 @@ export class LotorBrowserClient {
       body: JSON.stringify(body),
     }, true));
   }
+}
+
+function wireResourceLinkEnvelope(envelope: ResourceLinkEnvelopeSubmission): Record<string, string> {
+  return { manifest_item_id: bounded(envelope.manifestItemId, "manifest item", 256), encryption_suite: envelope.encryptionSuite,
+    ciphertext: bounded(envelope.ciphertext, "ciphertext"), aad_hash: bounded(envelope.aadHash, "AAD hash", 128),
+    issuer: bounded(envelope.issuer, "issuer", 512), issuer_key_id: bounded(envelope.issuerKeyId, "issuer key", 256),
+    signature: bounded(envelope.signature, "signature", 256) };
 }

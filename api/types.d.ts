@@ -1,11 +1,10 @@
-import type { DeviceKeyMaterial } from "./key-access.js";
 export interface AnonymousSession {
     authenticated: false;
 }
 export interface AuthenticatedSession {
     authenticated: true;
     subject: string;
-    email: string;
+    email?: string;
     keyAccess?: {
         enabled: boolean;
         requiredBeforeSignupComplete: boolean;
@@ -13,6 +12,38 @@ export interface AuthenticatedSession {
         activeKeyIds: string[];
         setupDelivery: string;
     };
+    e2ee?: {
+        claimRequired: boolean;
+        claimId?: string;
+        claimToken?: string;
+    };
+}
+export interface PublicKeyClaim {
+    claimId: string;
+    keyId: string;
+    generation: number;
+    status: "pending" | "transferring" | "completed" | "expired" | "cancelled";
+    encryptionPublicKey: Uint8Array;
+    signingPublicKey: Uint8Array;
+    expiresAt: number;
+}
+export interface PublicKeyClaimTransfer extends PublicKeyClaim {
+    encryptedPrivateBundle: Uint8Array;
+    boxPublicKey: Uint8Array;
+    nonce: Uint8Array;
+    aadHash: string;
+    associatedData: Uint8Array;
+    encryptionSuite: "X25519-HKDF-SHA256-AES-256-GCM";
+}
+export interface ClaimSubjectKeyInput {
+    claimId: string;
+    passphrase: string;
+    claimToken?: string;
+}
+export interface ClaimedSubjectKey extends SubjectKeyMutation {
+    deviceId: string;
+    encryptionPrivateKey: CryptoKey;
+    signingPrivateKey: CryptoKey;
 }
 export type ApplicationSession = AnonymousSession | AuthenticatedSession;
 export interface PasswordlessChallenge {
@@ -32,6 +63,13 @@ export interface PublicApplicationConfiguration {
     authentication: {
         methods: string[];
     };
+    e2ee: {
+        enabled: boolean;
+        allowedAccountCustody: Array<"browser_passphrase" | "temporary_box_then_browser" | "enterprise_box">;
+        accountBackup: "lotor_opaque" | "customer_box_opaque" | "device_only";
+        defaultResourceKeyExecutor: "managed" | "browser";
+        browserActionsSupported: boolean;
+    };
     keyAccess: {
         enabled: boolean;
         enrollment: {
@@ -48,9 +86,8 @@ export interface PublicApplicationConfiguration {
             parentType: string;
             encryption: {
                 mode: "none" | "optional" | "required";
-                defaultKeyStrategy: "none" | "resource_key" | "inherited";
-                allowInherited: boolean;
             };
+            payload: ResourcePayloadTypePolicy;
         }>;
     };
 }
@@ -95,14 +132,179 @@ export interface ResourceRegistration {
     resourceType: string;
     displayName?: string;
     parent?: string;
+    keyScope?: "organization" | "resource";
+}
+export interface CollaborationResourceEncryption {
+    required: boolean;
+    status: "not_required" | "provisioning" | "ready" | "failed";
+    keyScope?: "organization" | "resource";
+    effectiveKeyResource?: string;
+    keyResource?: string;
+    keyVersion?: number;
 }
 export interface CollaborationResource {
     id: string;
+    linkId?: string;
     resource: string;
     resourceType: string;
     displayName: string;
     parent?: string;
-    status: "active" | "deleted";
+    status: "pending_encryption" | "pending_payload" | "pending_encryption_payload" | "active" | "disabled" | "deleting" | "failed" | "deleted";
+    encryption: CollaborationResourceEncryption;
+    catalogBinding?: ResourceCatalogBinding;
+    revision: number;
+    lifecycleGeneration: number;
+}
+export interface ResourceCatalogBinding {
+    catalogId: string;
+    snapshotId: string;
+    snapshotDigest: string;
+    entryKinds: Array<"api.operation">;
+    resourceRevision: number;
+}
+export interface DurableOperation {
+    id: string;
+    kind: "resource_create" | "resource_move" | "resource_disable" | "resource_restore" | "resource_delete" | "catalog_import" | "catalog_publish" | "catalog_binding";
+    status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
+    targetKind: "resource" | "catalog" | "catalog_snapshot";
+    targetId: string;
+    requestHash: string;
+    errorCode?: string;
+    createdAt: number;
+    updatedAt: number;
+}
+export interface ResourceLifecycleFence {
+    expectedRevision: number;
+    expectedLifecycleGeneration: number;
+}
+export interface ResourceMoveInput extends ResourceLifecycleFence {
+    parent: string;
+}
+export interface ResourceDeleteInput extends ResourceLifecycleFence {
+    subtree: boolean;
+}
+export interface ResourcePayloadSlotPolicy {
+    name: string;
+    schemaIds: string[];
+    maximumObjectSize: number;
+    required: boolean;
+}
+export interface ResourcePayloadTypePolicy {
+    storage: "none" | "lotor" | "provider";
+    slots: ResourcePayloadSlotPolicy[];
+}
+interface ResourcePayloadManifestBase {
+    resource: string;
+    slot: string;
+    schemaId: string;
+    payloadVersion: number;
+    objectDigest: string;
+    objectSize: number;
+    resourceRevision: number;
+    lifecycleGeneration: number;
+    state: "committed" | "deleting" | "deleted";
+    committedAt: number;
+    deletedAt?: number;
+}
+export interface RawResourcePayloadManifest extends ResourcePayloadManifestBase {
+    representation: "raw";
+}
+export interface EncryptedResourcePayloadManifest extends ResourcePayloadManifestBase {
+    representation: "encrypted-envelope-v1";
+    encryptionSuite: "AES-256-GCM";
+    keyBindingRef: string;
+    keyVersion: number;
+    wrappedPayloadKey: string;
+    aadHash: string;
+    encryptorSubject: string;
+    encryptorKeyId: string;
+}
+export type ResourcePayloadManifest = RawResourcePayloadManifest | EncryptedResourcePayloadManifest;
+interface ResourcePayloadUploadBase {
+    schemaId: string;
+    expectedPayloadVersion: number;
+    objectDigest: string;
+    objectSize: number;
+    resourceRevision: number;
+    lifecycleGeneration: number;
+}
+export interface RawResourcePayloadUploadInput extends ResourcePayloadUploadBase {
+    representation: "raw";
+}
+export interface EncryptedResourcePayloadUploadInput extends ResourcePayloadUploadBase {
+    representation: "encrypted-envelope-v1";
+    encryptionSuite: "AES-256-GCM";
+    keyBindingRef: string;
+    keyVersion: number;
+    wrappedPayloadKey: string;
+    aadHash: string;
+    /** Required for browser custody; omitted when the selected custody box attests during upload creation. */
+    encryptorSubject?: string;
+    encryptorKeyId?: string;
+    encryptionReceipt?: string;
+}
+export type ResourcePayloadUploadInput = RawResourcePayloadUploadInput | EncryptedResourcePayloadUploadInput;
+export interface ResourcePayloadRewrapInput {
+    payloadVersion: number;
+    expectedWrapRevision: number;
+    keyBindingRef: string;
+    previousKeyVersion: number;
+    keyVersion: number;
+    resourceRevision: number;
+    lifecycleGeneration: number;
+    /** Browser custody only; omit these four fields for managed/customer-box execution. */
+    wrappedPayloadKey?: string;
+    rewrapperSubject?: string;
+    rewrapperKeyId?: string;
+    rewrapReceipt?: string;
+}
+export interface ResourcePayloadRewrapResult {
+    resource: string;
+    slot: string;
+    keyBindingRef: string;
+    wrappedPayloadKey: string;
+    aadHash: string;
+    rewrapperSubject: string;
+    rewrapperKeyId: string;
+    payloadVersion: number;
+    wrapRevision: number;
+    previousKeyVersion: number;
+    keyVersion: number;
+    resourceRevision: number;
+    lifecycleGeneration: number;
+}
+export interface ResourcePayloadUploadIntent {
+    resource: string;
+    slot: string;
+    payloadVersion: number;
+    expectedPayloadVersion: number;
+    uploadUrl: string;
+    uploadMethod: "PUT";
+    requiredHeaders: Record<string, string>;
+    expiresAt: number;
+    /** Present only in cross-origin public API mode; same-origin mode uses a Strict cookie. */
+    token?: string;
+}
+export interface ResourcePayloadAccessLease {
+    resource: string;
+    slot: string;
+    payloadVersion: number;
+    representation: "raw" | "encrypted-envelope-v1";
+    objectDigest: string;
+    objectSize: number;
+    downloadUrl: string;
+    downloadMethod: "GET";
+    expiresAt: number;
+    audience: string;
+    resourceRevision: number;
+    lifecycleGeneration: number;
+}
+export interface ResourcePayloadMutation {
+    resource: string;
+    slot: string;
+    payloadVersion: number;
+    state: "deleting" | "deleted";
+    idempotent: boolean;
 }
 interface CheckoutSessionInput {
     organizationId: string;
@@ -152,219 +354,165 @@ export interface SubjectKeyEnrollment extends SubjectKeyMutation {
     signingPrivateKey: CryptoKey;
 }
 export type { SubjectKeyRecord } from "./key-access.js";
-export interface ResourceMember {
-    grantId: string;
-    scope: string;
-    subject: string;
-    relation: string;
-    resource: string;
-    keyResource: string;
-    keyVersion: number;
-    recipientKeyId: string;
-    invitationId: string;
-    status: "pending_provisioning" | "active" | "revoked";
-    recipientKeyStatus: "active" | "revoked" | "";
-    recipientEncryptionPublicKey: Uint8Array;
-    logSeq: number;
-}
-export interface ResourceGrantMutation {
-    accepted: boolean;
-    reason: string;
-    grantId: string;
-    status: string;
-    logSeq: number;
-}
-export interface ResourceKeyVersionInput {
-    scope: string;
-    keyResource: string;
-    version: number;
-    algorithm?: "AES-256-GCM";
-}
-export interface ResourceKeyMutation {
-    accepted: boolean;
-    reason: string;
-    keyResource: string;
-    version: number;
-    logSeq: number;
-}
-export interface ResourceGrantInput {
-    grantId: string;
-    scope: string;
-    resource: string;
-    subject: string;
-    relation: string;
-    keyResource: string;
-    keyVersion: number;
-    recipientKeyId: string;
-    invitationId?: string;
-}
-export interface EncryptedInvitationMutation {
-    accepted: boolean;
-    reason: string;
-    invitationId: string;
-    logSeq: number;
-}
-export interface LinkTargetInput {
-    type: "invite" | "direct";
+export interface ResourceLinkChange {
+    action: "grant" | "revoke";
+    linkId?: string;
+    collaborator?: string;
+    relation?: string;
+    subject?: string;
     email?: string;
+    subjectResource?: string;
+    subjectRelation?: string;
+    provisioning?: "existing_only" | "create_if_missing";
+    delivery?: "email" | "in_app" | "external" | "none" | "notification_only";
+    cascade?: boolean;
+}
+export interface ResourceLinkCandidateSearchInput {
+    query: string;
+    relation: string;
+    kinds?: Array<"user" | "group">;
+    limit?: number;
+    cursor?: string;
+}
+export interface ResourceLinkCandidate {
+    kind: "user" | "group";
+    displayName: string;
     subject?: string;
     resource?: string;
-    subject_relation?: string;
-    provisioning?: "existing_only" | "create_if_missing";
-    delivery?: "email" | "in_app" | "external" | "none";
+    subjectRelation?: "member";
+    email?: string;
+    linkState: "available" | "linked" | "pending_invitation";
+    selectable: boolean;
+    reason?: string;
 }
-export interface LinkRecipientKey {
+export interface ResourceLinkCandidateSearchResult {
+    candidates: ResourceLinkCandidate[];
+    nextCursor: string | null;
+}
+export interface ResourceLinkOutcome {
+    linkId?: string;
+    resource: string;
     subject: string;
+    relation: string;
+    state: "active" | "pending_acceptance" | "pending_encryption" | "revoked" | "denied";
+    allowed: boolean;
+    reason?: string;
+}
+export interface ResourceLinkKeyRequirement {
+    manifestItemId: string;
     grantId: string;
-    keyId: string;
+    resource: string;
+    relation: string;
+    keyResource: string;
+    keyVersion: string;
+    recipientSubject: string;
+    recipientKeyId: string;
     encryptionAlgorithm: "X25519";
     publicKey: Uint8Array;
+    invitationId?: string;
+    activation?: "active" | "pending_invitation";
 }
-export interface LinkTargetDecision {
-    id: string;
-    type: "invite" | "direct";
-    kind: "email" | "user" | "group";
-    email?: string;
-    subject?: string;
-    resource?: string;
-    subjectRelation?: string;
-    classification: "internal" | "guest" | "group" | "unknown";
-    provisioning: "existing_only" | "create_if_missing";
-    delivery: "email" | "in_app" | "external" | "none";
-    reasonCode: string;
-    message: string;
-    recipientKeys: LinkRecipientKey[];
-    acceptanceRequired: boolean;
-    encryptionReady: boolean;
-    allowed: boolean;
-}
-export interface LinkSourceEnvelope {
-    grantId: string;
-    scope: string;
-    resource: string;
-    relation: string;
-    keyResource: string;
-    subject: string;
-    recipientKeyId: string;
+export interface ResourceLinkEnvelopeSubmission {
+    manifestItemId: string;
     encryptionSuite: "X25519-HKDF-SHA256-AES-256-GCM";
-    ciphertext: Uint8Array;
-    aadHash: Uint8Array;
+    ciphertext: string;
+    aadHash: string;
     issuer: string;
     issuerKeyId: string;
-    issuerSigningAlgorithm: "Ed25519";
-    issuerSigningPublicKey: Uint8Array;
-    issuerKeyStatus: "active" | "revoked";
-    signature: Uint8Array;
-    keyVersion: number;
-}
-export interface LinkPreflight {
-    preflightId: string;
-    resource: string;
-    relation: string;
-    policyRevision: string;
-    expiresAt: number;
-    targets: LinkTargetDecision[];
-    encryption: {
-        required: boolean;
-        keyResource?: string;
-        sourceEnvelope?: LinkSourceEnvelope;
-        ready: boolean;
-    };
-    ready: boolean;
-    idempotent: boolean;
-}
-export interface LinkPreflightInput {
-    relation: string;
-    targets: LinkTargetInput[];
-    ttl_seconds?: number;
-}
-export interface LinkEnvelopeInput {
-    grant_id: string;
-    recipient_subject: string;
-    recipient_key_id: string;
-    encryption_suite: "X25519-HKDF-SHA256-AES-256-GCM";
-    ciphertext: string;
-    aad_hash: string;
-    issuer_key_id: string;
     signature: string;
 }
-export interface LinkSendInput {
-    preflight_id: string;
-    targets: Array<{
-        target_id: string;
-        envelopes?: LinkEnvelopeInput[];
-    }>;
+export interface OrganizationE2EEPolicyInput {
+    requiredAccountCustody: "browser_passphrase" | "temporary_box_then_browser" | "enterprise_box";
+    resourceKeyExecutor: "managed" | "customer_box" | "browser";
+    automationExecutor: "managed" | "customer_box" | "none";
+    functionBindingId?: string;
+    resourceKeyPolicy: "organization_only" | "organization_default" | "resource_only";
 }
-export interface LinkMutation {
-    id: string;
-    targetId: string;
-    type: "invite" | "direct";
-    subject: string;
-    status: string;
-    invitationId?: string;
-    ticket?: string;
+export interface OrganizationE2EEPolicy extends OrganizationE2EEPolicyInput {
+    organization: string;
+    status: "pending" | "ready" | "unavailable";
+    revision: number;
 }
-export interface LinkSendResult {
-    preflightId: string;
+export interface ResourceSessionEnvelope {
     resource: string;
-    links: LinkMutation[];
-}
-export type SubjectKeyCredentials = {
-    passphrase: string;
-    keyMaterial?: never;
-} | {
-    passphrase?: never;
-    keyMaterial: DeviceKeyMaterial;
-};
-export type EnsureEncryptedResourceInput = {
-    scope: string;
-    resource: string;
-    keyResource?: string;
-    relation?: string;
-    version?: number;
-    resourceKey: Uint8Array;
-} & SubjectKeyCredentials;
-export interface EnsureEncryptedResourceResult {
-    created: boolean;
-    keyResource: string;
-    version: number;
-    grantId: string;
-}
-export type EncryptedResourceLinkInput = {
-    relation: string;
-    targets: LinkTargetInput[];
-    resourceKey: Uint8Array;
-    preflightIdempotencyKey: string;
-    sendIdempotencyKey?: string;
-    ttlSeconds?: number;
-} & SubjectKeyCredentials;
-export interface EncryptedResourceLinkResult {
-    preflight: LinkPreflight;
-    sent: LinkSendResult;
-}
-export interface KeyProvisioningJob {
-    grantId: string;
-    linkId: string;
-    resource: string;
-    relation: string;
     keyResource: string;
     keyVersion: number;
-    subject: string;
-    recipientKeyId: string;
-    encryptionAlgorithm: "X25519";
-    publicKey: Uint8Array;
-    linkStatus: "pending_acceptance" | "pending_encryption" | "active";
+    encryptionSuite: "X25519-HKDF-SHA256-AES-256-GCM";
+    ephemeralPublicKey: string;
+    nonce: string;
+    ciphertext: string;
+    associatedData: string;
+    aadHash: string;
+    expiresAt: number;
 }
-export interface KeyProvisioningJobList {
-    resource: string;
-    jobs: KeyProvisioningJob[];
-}
-export type ProvisionEncryptedResourceLinksInput = {
+export interface ResourceSession extends ResourceSessionEnvelope {
     resourceKey: Uint8Array;
-} & SubjectKeyCredentials;
-export interface KeyProvisioningMutation {
+}
+export interface EncryptionAction {
+    id: string;
+    kind: "principal_key_enroll" | "resource_key_create" | "envelope_rewrap" | "resource_key_rotate";
     resource: string;
-    submitted: number;
+    status: "awaiting_browser";
+    revision: string;
+    keyRequirements: ResourceLinkKeyRequirement[];
+}
+export interface EncryptionActionMutation {
+    id: string;
+    status: "projecting" | "completed";
+    idempotent: boolean;
+}
+export interface ResourceLinkResult {
+    resource: string;
+    status: "ready" | "committing" | "pending_acceptance" | "pending_encryption" | "active" | "failed" | "expired";
+    failureReason?: string;
+    expiresAt: number;
+    idempotent: boolean;
+    committable: boolean;
+    revisions: {
+        customer: string;
+        graph: string;
+        policy: string;
+        identity: string;
+        billing: string;
+        seat: string;
+        key: string;
+    };
+    outcomes: ResourceLinkOutcome[];
+    capacity: {
+        scope: "per_organization" | "per_account";
+        before: number;
+        after: number;
+        claim: number;
+        release: number;
+    };
+    billing: {
+        currentQuantity: number;
+        nextCycleQuantity: number;
+        increase: number;
+        nextCycleReduction: number;
+    };
+    invitationActions: Array<{
+        invitationId: string;
+        action: "preserve" | "claim" | "activate" | "supersede" | "cancel";
+        reason?: string;
+    }>;
+    keyRequirements: ResourceLinkKeyRequirement[];
+    impact: {
+        impactedResources: string[];
+        retainedResources: string[];
+        rekeyResources: string[];
+    };
+}
+export interface ResourceLinkPreflight {
+    result: ResourceLinkResult;
+    token?: string;
+}
+export interface ResourceLinkSendInput {
+    changes: ResourceLinkChange[];
+}
+export interface ResourceLinkSendResult {
+    preflight: ResourceLinkPreflight;
+    committed: ResourceLinkResult;
 }
 export interface UnlinkResult {
     id: string;
@@ -525,16 +673,6 @@ export interface ResourceInvitationMutation {
     relation: string;
     status: string;
     idempotent: boolean;
-}
-export interface ResourceCollaboratorMutation {
-    resource: string;
-    collaborator: string;
-    relations: string[];
-    status: string;
-    force?: boolean;
-    cascaded_groups?: string[];
-    rekey_required?: boolean;
-    rekey_resources?: string[];
 }
 export interface ResourceCollaborationPolicyOverride {
     guests: {
