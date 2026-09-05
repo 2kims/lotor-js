@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.1.2-rc.7](https://github.com/2kims/lotor-js/compare/v0.1.1-rc.7...v0.1.2-rc.7) (2026-09-05)
+
+
+### Miscellaneous Chores
+
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([9634657](https://github.com/2kims/lotor-js/commit/9634657ae10c48d61ae8cfe307a61cd545e6abfd))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#11](https://github.com/2kims/lotor-js/issues/11)) ([17cc8b4](https://github.com/2kims/lotor-js/commit/17cc8b42a9ad8518c47e6e7a1d1c99e9e0e3e4b4))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#13](https://github.com/2kims/lotor-js/issues/13)) ([a300084](https://github.com/2kims/lotor-js/commit/a3000849aed2ed1ab47ac16d61b55623072d04d9))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#3](https://github.com/2kims/lotor-js/issues/3)) ([8964b28](https://github.com/2kims/lotor-js/commit/8964b283814483419a9a7a31349be3b3f2310259))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#7](https://github.com/2kims/lotor-js/issues/7)) ([2dc099a](https://github.com/2kims/lotor-js/commit/2dc099aeb473b00b91fe9e19f47a4a1e5e6464a2))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#8](https://github.com/2kims/lotor-js/issues/8)) ([8c2874f](https://github.com/2kims/lotor-js/commit/8c2874fffc38969df8e5e41a28191553b17b7c1b))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#9](https://github.com/2kims/lotor-js/issues/9)) ([0006eee](https://github.com/2kims/lotor-js/commit/0006eee273e83c8756323b9552542f23607a2660))
+
 ## 0.1.1-rc.7 (2026-08-31)
 
 - Add cookie-only `same-origin` gateway mode using relative reserved paths,
