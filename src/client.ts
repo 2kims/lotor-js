@@ -7,6 +7,7 @@ import {
   type CSRFTokenProvider,
 } from "./transport.js";
 import * as decode from "./decode.js";
+import { iteratePages, pollOperation, type PageOptions, type PollOptions } from "./async-helpers.js";
 import { claimTransferredSubjectKey, createClaimTransferKey, createSubjectKeyRegistration, unlockSubjectKeyBackup } from "./key-access.js";
 import {
   MemoryTokenStore,
@@ -96,6 +97,12 @@ function bounded(value: string, name: string, maximum = 2048): string {
   return normalized;
 }
 
+function scimDirectoryID(value: string): string {
+  const directoryId = bounded(value, "directoryId", 256);
+  if (directoryId === "." || directoryId === ".." || /[\\/]/.test(directoryId)) throw new Error("invalid SCIM directory ID");
+  return directoryId;
+}
+
 function publicBaseUrl(value: string, allowInsecureLoopback: boolean): string {
   let url: URL;
   try {
@@ -126,7 +133,10 @@ function safeRedirectUrl(value: string, name: string): string {
 export class LotorBrowserClient {
   readonly clientId: string;
   readonly publishableKey: string;
-  readonly billing: { createCheckoutSession: (input: CreateCheckoutSessionInput) => Promise<CheckoutSession> };
+  readonly billing: {
+    createCheckoutSession: (input: CreateCheckoutSessionInput) => Promise<CheckoutSession>;
+    createPortalSession: (input: import("./types.js").CreatePortalSessionInput) => Promise<import("./types.js").PortalSession>;
+  };
   private readonly transport: BrowserRequestTransport;
   private readonly tokenStore: TokenStore;
   private readonly applicationPath: string;
@@ -145,7 +155,10 @@ export class LotorBrowserClient {
       ? new SameOriginBrowserTransport(fetcher, this.publishableKey, options.csrfToken)
       : new BrowserTransport(publicBaseUrl(options.baseUrl, options.allowInsecureLoopback === true), fetcher, this.tokenStore, this.publishableKey);
     this.applicationPath = this.sameOrigin ? "/.lotor/v1" : `/v1/public/applications/${encodeURIComponent(this.clientId)}`;
-    this.billing = { createCheckoutSession: (input) => this.createCheckoutSession(input) };
+    this.billing = {
+      createCheckoutSession: (input) => this.createCheckoutSession(input),
+      createPortalSession: (input) => this.createPortalSession(input),
+    };
   }
 
   async configuration(): Promise<PublicApplicationConfiguration> {
@@ -213,6 +226,16 @@ export class LotorBrowserClient {
     }, true));
   }
 
+  async createSystemResource(input: import("./types.js").SystemResourceCreation, idempotencyKey: string): Promise<DurableOperation> {
+    if (input.resourceType !== "group" && input.resourceType !== "service_account") throw new Error("invalid system resource type");
+    if (input.keyScope !== undefined && input.keyScope !== "organization" && input.keyScope !== "resource") throw new Error("invalid key scope");
+    return decode.durableOperation(await this.transport.request(`${this.applicationPath}/resources`, {
+      method: "POST",
+      headers: { "Idempotency-Key": bounded(idempotencyKey, "idempotencyKey", 256) },
+      body: JSON.stringify({ resource_type: input.resourceType, display_name: bounded(input.displayName, "displayName", 512), parent: bounded(input.parent, "parent", 512), ...(input.keyScope === undefined ? {} : { key_scope: input.keyScope }) }),
+    }, true));
+  }
+
   async putResource(resource: string, input: import("./types.js").ResourceRegistration): Promise<import("./types.js").CollaborationResource> {
     return decode.collaborationResource(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}`, {
       method: "PUT", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
@@ -253,10 +276,14 @@ export class LotorBrowserClient {
 	));
   }
 
-  async operation(operationId: string): Promise<DurableOperation> {
+  async operation(operationId: string, options: { signal?: AbortSignal } = {}): Promise<DurableOperation> {
 	return decode.durableOperation(await this.transport.request(
-		`${this.applicationPath}/operations/${encodeURIComponent(bounded(operationId, "operationId", 256))}`, {}, true,
+		`${this.applicationPath}/operations/${encodeURIComponent(bounded(operationId, "operationId", 256))}`, { signal: options.signal }, true,
 	));
+  }
+
+  waitForOperation(operationId: string, options: PollOptions = {}): Promise<DurableOperation> {
+    return pollOperation(signal => this.operation(operationId, { signal }), options);
   }
 
   private async resourceLifecycleOperation(resource: string, action: "move" | "disable" | "restore", input: ResourceLifecycleFence & { parent?: string }, idempotencyKey: string): Promise<DurableOperation> {
@@ -302,8 +329,14 @@ export class LotorBrowserClient {
 
   async uploadResourcePayloadObject(intent: ResourcePayloadUploadIntent, object: Uint8Array): Promise<void> {
     if (object.length === 0) throw new Error("resource payload object must not be empty");
-    const response = await this.fetcher(intent.uploadUrl, {
-      method: intent.uploadMethod, headers: intent.requiredHeaders, body: object.slice().buffer,
+    const url = payloadObjectURL(intent.uploadUrl);
+    if (intent.uploadMethod !== "PUT") throw new Error("invalid payload upload method");
+    const headers = new Headers(intent.requiredHeaders);
+    for (const name of headers.keys()) {
+      if (["authorization", "proxy-authorization", "cookie", "cookie2", "host", "origin"].includes(name) || name.startsWith("x-lotor-") || name.startsWith("lotor-")) throw new Error("unsafe payload upload header");
+    }
+    const response = await this.fetcher(url.toString(), {
+      method: intent.uploadMethod, headers, body: object.slice().buffer,
       credentials: "omit", redirect: "error",
     });
     if (!response.ok) throw new LotorBrowserError(`Lotor resource payload upload failed with status ${response.status}`, response.status, "payload_upload_failed");
@@ -314,6 +347,42 @@ export class LotorBrowserClient {
       method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" },
       body: JSON.stringify(payloadVersion === undefined ? {} : { payload_version: payloadVersion }),
     }, true));
+  }
+
+  /** Downloads and verifies up to 64 MiB. Returns stored bytes without decryption.
+   * Custom fetch implementations must not inject credentials into storage requests. */
+  async downloadResourcePayload(lease: ResourcePayloadAccessLease, options: { signal?: AbortSignal } = {}): Promise<Uint8Array> {
+    options.signal?.throwIfAborted();
+    const url = payloadObjectURL(lease.downloadUrl);
+    if (lease.downloadMethod !== "GET") throw new Error("invalid payload download method");
+    if (!Number.isSafeInteger(lease.objectSize) || lease.objectSize < 0 || lease.objectSize > 64 * 1024 * 1024) throw new Error("invalid payload object size");
+    if (!/^[a-fA-F0-9]{64}$/.test(lease.objectDigest)) throw new Error("invalid payload object digest");
+    const response = await this.fetcher(url.toString(), { method: "GET", credentials: "omit", redirect: "error", signal: options.signal });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new LotorBrowserError(`Lotor resource payload download failed with status ${response.status}`, response.status, "payload_download_failed");
+    }
+    const bytes = new Uint8Array(lease.objectSize);
+    let size = 0;
+    const reader = response.body?.getReader();
+    try {
+      while (reader) {
+        options.signal?.throwIfAborted();
+        const part = await reader.read();
+        if (part.done) break;
+        if (part.value.byteLength > bytes.length - size) throw new Error("payload download size does not match lease");
+        bytes.set(part.value, size);
+        size += part.value.byteLength;
+      }
+    } finally {
+      if (reader) {
+        try { await reader.cancel(); } finally { reader.releaseLock(); }
+      }
+    }
+    if (size !== lease.objectSize) throw new Error("payload download size does not match lease");
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
+    if (digest !== lease.objectDigest.toLowerCase()) throw new Error("payload download digest does not match lease");
+    return bytes;
   }
 
   async rewrapResourcePayload(resource: string, slot: string, input: import("./types.js").ResourcePayloadRewrapInput): Promise<import("./types.js").ResourcePayloadRewrapResult> {
@@ -420,6 +489,71 @@ export class LotorBrowserClient {
     return decode.organizationE2EEPolicy(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 512))}/e2ee`, {}, true));
   }
 
+  async createSCIMDirectory(organization: string, input: import("./types.js").SCIMDirectoryCreateInput, idempotencyKey: string): Promise<import("./types.js").SCIMDirectory> {
+    for (const value of [input.expectedResourceRevision, input.expectedLifecycleGeneration]) {
+      if (!Number.isSafeInteger(value) || value < 1) throw new Error("SCIM resource fences must be positive safe integers");
+    }
+    return decode.scimDirectory(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 256))}/scim-directories`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1", "Idempotency-Key": bounded(idempotencyKey, "idempotencyKey", 256) },
+      body: JSON.stringify({ directory_resource: bounded(input.directoryResource, "directoryResource", 256), credential_resource: bounded(input.credentialResource, "credentialResource", 256),
+        expected_resource_revision: input.expectedResourceRevision, expected_lifecycle_generation: input.expectedLifecycleGeneration }),
+    }, true));
+  }
+
+  async scimDirectory(organization: string, directoryId: string): Promise<import("./types.js").SCIMDirectory> {
+    const directory = decode.scimDirectory(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 256))}/scim-directories/${encodeURIComponent(scimDirectoryID(directoryId))}`, {}, true));
+    if (directory.id !== directoryId) throw new Error("SCIM directory response ID mismatch");
+    return directory;
+  }
+
+  async updateSCIMDirectory(organization: string, directoryId: string, input: import("./types.js").SCIMDirectoryUpdateInput, idempotencyKey: string): Promise<import("./types.js").SCIMDirectory> {
+    if (typeof input.enabled !== "boolean" || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1) throw new Error("invalid SCIM directory update input");
+    const directory = decode.scimDirectory(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 256))}/scim-directories/${encodeURIComponent(scimDirectoryID(directoryId))}`, {
+      method: "PUT", headers: { "X-Lotor-Request": "lotor-js-v1", "Idempotency-Key": bounded(idempotencyKey, "idempotencyKey", 256) },
+      body: JSON.stringify({ enabled: input.enabled, expected_revision: input.expectedRevision }),
+    }, true));
+    if (directory.id !== directoryId) throw new Error("SCIM directory response ID mismatch");
+    return directory;
+  }
+
+  async scimDirectories(organization: string, options: { cursor?: string; limit?: number } = {}): Promise<import("./types.js").SCIMDirectoryList> {
+    const query = new URLSearchParams();
+    if (options.cursor !== undefined) query.set("cursor", bounded(options.cursor, "cursor", 4096));
+    if (options.limit !== undefined) {
+      if (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 100) throw new Error("SCIM page limit must be between 1 and 100");
+      query.set("limit", String(options.limit));
+    }
+    return decode.scimDirectoryList(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 256))}/scim-directories${query.size ? `?${query}` : ""}`, {}, true));
+  }
+
+  async createOrganizationFunctionBinding(organization: string): Promise<import("./types.js").OrganizationFunctionBindingBootstrap> {
+    return decode.organizationFunctionBindingBootstrap(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 512))}/e2ee/function-bindings`, { method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" } }, true));
+  }
+
+  async organizationFunctionBindings(organization: string): Promise<import("./types.js").OrganizationFunctionBindingStatus[]> {
+    const result = await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 512))}/e2ee/function-bindings`, {}, true);
+    if (!Array.isArray(result) || result.length > 1) throw new Error("invalid current organization bindings response");
+    return result.map(value => {
+      const binding = decode.organizationFunctionBindingStatus(value);
+      if (binding.status === "revoked") throw new Error("invalid current organization binding state");
+      return binding;
+    });
+  }
+
+  async organizationFunctionBinding(organization: string, bindingId: string): Promise<import("./types.js").OrganizationFunctionBindingStatus> {
+    const result = decode.organizationFunctionBindingStatus(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 512))}/e2ee/function-bindings/${encodeURIComponent(bounded(bindingId, "binding", 256))}`, {}, true));
+    if (result.bindingId !== bindingId) throw new Error("Lotor returned a different organization binding");
+    return result;
+  }
+
+  async startOrganizationFunctionBindingChallenge(organization: string, bindingId: string): Promise<import("./types.js").OrganizationFunctionBindingChallengeStatus> {
+    return decode.organizationFunctionBindingChallengeStatus(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 512))}/e2ee/function-bindings/${encodeURIComponent(bounded(bindingId, "binding", 256))}/challenge`, { method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" } }, true));
+  }
+
+  async revokeOrganizationFunctionBinding(organization: string, bindingId: string): Promise<void> {
+    await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 512))}/e2ee/function-bindings/${encodeURIComponent(bounded(bindingId, "binding", 256))}`, { method: "DELETE", headers: { "X-Lotor-Request": "lotor-js-v1" } }, true);
+  }
+
   async configureOrganizationE2EE(organization: string, input: import("./types.js").OrganizationE2EEPolicyInput): Promise<OrganizationE2EEPolicy> {
     return decode.organizationE2EEPolicy(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(organization, "organization", 512))}/e2ee`, {
       method: "PUT", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
@@ -456,6 +590,7 @@ export class LotorBrowserClient {
       const envelope = await createResourceEnvelope({
         clientId: this.clientId, issuer: session.subject, issuerKeyId: keyMaterial.keyId,
         issuerSigningPrivateKey: keyMaterial.signingPrivateKey, resourceKey,
+        associatedData: requirement.associatedData,
         member: {
           grantId: requirement.grantId, scope: requirement.keyResource, resource: requirement.resource,
           subject: requirement.recipientSubject, relation: requirement.relation,
@@ -474,6 +609,9 @@ export class LotorBrowserClient {
   }
 
   async searchResourceLinkCandidates(resource: string, input: ResourceLinkCandidateSearchInput): Promise<ResourceLinkCandidateSearchResult> {
+    if (input.query.length < 2) throw new Error("query must contain at least two characters");
+    if (input.kinds !== undefined && (input.kinds.length < 1 || input.kinds.length > 3 || new Set(input.kinds).size !== input.kinds.length)) throw new Error("invalid candidate kinds");
+    if (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)) throw new Error("limit must be between 1 and 100");
     return decode.resourceLinkCandidates(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/link-candidates/search`, {
       method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
         query: bounded(input.query, "query", 256), relation: bounded(input.relation, "relation", 128),
@@ -527,7 +665,7 @@ export class LotorBrowserClient {
     return decode.unlinkResult(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/links/${encodeURIComponent(bounded(linkId, "linkId", 256))}`, { method: "DELETE", headers }, true));
   }
 
-  async resourceCollaborators(resource: string, options: { view?: "direct" | "effective"; search?: string; email?: string; subject?: string; resourceSubject?: string; viaGroup?: string; direct?: boolean; kind?: "user" | "group" | "invitation"; kinds?: Array<"user" | "group" | "invitation">; status?: string; statuses?: string[]; relations?: string[]; cursor?: string; limit?: number } = {}): Promise<ResourceCollaboratorList> {
+  async resourceCollaborators(resource: string, options: { view?: "direct" | "effective"; search?: string; email?: string; subject?: string; resourceSubject?: string; viaGroup?: string; direct?: boolean; kind?: "user" | "group" | "service_account" | "invitation"; kinds?: Array<"user" | "group" | "service_account" | "invitation">; status?: string; statuses?: string[]; relations?: string[]; cursor?: string; limit?: number } = {}): Promise<ResourceCollaboratorList> {
     const query = new URLSearchParams();
     if (options.view) query.set("view", options.view);
     if (options.search) query.set("search", bounded(options.search, "search", 256));
@@ -597,8 +735,95 @@ export class LotorBrowserClient {
     return decode.accountInvitations(await this.transport.request(`${this.applicationPath}/me/invitations${suffix}`, {}, true));
   }
 
-  async accountResources(options: { types?: string[]; accessStates?: Array<"active" | "pending_encryption">; cursor?: string; limit?: number } = {}): Promise<AccountResourceList> {
+  /** Lists metadata only, never recoverable credential presentations. */
+  async resourceCredentials(resource: string): Promise<import("./types.js").ResourceCredentialMetadata[]> {
+    return decode.resourceCredentials(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/credentials`, {}, true));
+  }
+
+  /** Returns the one-time presentation to the caller; the SDK never stores it. */
+  async issueResourceCredential(resource: string, input: import("./types.js").ResourceCredentialIssueInput, idempotencyKey: string): Promise<import("./types.js").IssuedResourceCredential> {
+    return decode.issuedResourceCredential(await this.credentialMutation(resource, "", "POST", idempotencyKey, {
+      issued_to: bounded(input.issuedTo, "issuedTo", 512), ...(input.expiresAt === undefined ? {} : { expires_at: input.expiresAt }),
+    }));
+  }
+
+  async rotateResourceCredential(resource: string, credentialId: string, input: import("./types.js").ResourceCredentialRotateInput, idempotencyKey: string): Promise<import("./types.js").IssuedResourceCredential> {
+    return decode.issuedResourceCredential(await this.credentialMutation(resource, `/${encodeURIComponent(bounded(credentialId, "credentialId", 300))}/rotate`, "POST", idempotencyKey, {
+      revoke_previous_at: input.revokePreviousAt, ...(input.expiresAt === undefined ? {} : { expires_at: input.expiresAt }),
+    }));
+  }
+
+  async revokeResourceCredential(resource: string, credentialId: string, idempotencyKey: string): Promise<import("./types.js").ResourceCredentialMetadata> {
+    return decode.resourceCredential(await this.credentialMutation(resource, `/${encodeURIComponent(bounded(credentialId, "credentialId", 300))}`, "DELETE", idempotencyKey));
+  }
+
+  private credentialMutation(resource: string, suffix: string, method: string, idempotencyKey: string, body?: Record<string, unknown>): Promise<unknown> {
+    for (const field of ["expires_at", "revoke_previous_at"]) {
+      if (body && field in body && (typeof body[field] !== "number" || !Number.isSafeInteger(body[field]) || (body[field] as number) < 0)) throw new Error(`${field} must be a nonnegative safe integer timestamp`);
+    }
+    return this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/credentials${suffix}`, {
+      method, headers: { "X-Lotor-Request": "lotor-js-v1", "Idempotency-Key": bounded(idempotencyKey, "idempotencyKey", 256) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }, true);
+  }
+
+  /** Lists explicitly discoverable published catalogs within the user's scope. */
+  async availableCatalogs(options: { cursor?: string; limit?: number } = {}): Promise<import("./types.js").DiscoverableCatalogList> {
+    return decode.discoverableCatalogs(await this.transport.request(`${this.applicationPath}/me/catalogs${this.catalogPageQuery(options)}`, {}, true));
+  }
+
+  async availableCatalogEntries(catalogId: string, options: { cursor?: string; limit?: number } = {}): Promise<import("./types.js").PublishedCatalogEntryList> {
+    return decode.publishedCatalogEntries(await this.transport.request(`${this.applicationPath}/me/catalogs/${encodeURIComponent(bounded(catalogId, "catalogId", 300))}/entries${this.catalogPageQuery(options)}`, {}, true));
+  }
+
+  async bindResourceCatalog(resource: string, input: import("./types.js").CatalogBindingInput, idempotencyKey: string): Promise<import("./types.js").DurableOperation> {
+    for (const value of [input.expectedResourceRevision, input.expectedLifecycleGeneration]) {
+      if (!Number.isSafeInteger(value) || value < 1) throw new Error("binding revisions must be positive safe integers");
+    }
+    if (input.entryKinds.length < 1 || input.entryKinds.length > 16 || new Set(input.entryKinds).size !== input.entryKinds.length || input.entryKinds.some(kind => kind.length > 128 || !/^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)+$/.test(kind))) throw new Error("invalid catalog entry kinds");
+    return decode.durableOperation(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/catalog-binding`, {
+      method: "PUT", headers: { "X-Lotor-Request": "lotor-js-v1", "Idempotency-Key": bounded(idempotencyKey, "idempotencyKey", 256) },
+      body: JSON.stringify({ catalog_id: bounded(input.catalogId, "catalogId", 300), snapshot_id: bounded(input.snapshotId, "snapshotId", 300), entry_kinds: input.entryKinds,
+        expected_resource_revision: input.expectedResourceRevision, expected_lifecycle_generation: input.expectedLifecycleGeneration }),
+    }, true));
+  }
+
+  private catalogPageQuery(options: { cursor?: string; limit?: number }): string {
     const query = new URLSearchParams();
+    if (options.cursor !== undefined) query.set("cursor", bounded(options.cursor, "cursor", 2048));
+    if (options.limit !== undefined) {
+      if (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 100) throw new Error("limit must be between 1 and 100");
+      query.set("limit", String(options.limit));
+    }
+    return query.size ? `?${query}` : "";
+  }
+
+  /** Reads only the published snapshot pinned to an authorized resource. */
+  async resourceCatalogEntries(resource: string, catalogId: string, options: { cursor?: string; limit?: number } = {}): Promise<import("./types.js").CatalogEntryList> {
+    const query = new URLSearchParams({ resource: bounded(resource, "resource", 512) });
+    if (options.cursor !== undefined) query.set("cursor", bounded(options.cursor, "cursor", 2048));
+    if (options.limit !== undefined) {
+      if (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 100) throw new Error("limit must be between 1 and 100");
+      query.set("limit", String(options.limit));
+    }
+    return decode.catalogEntries(await this.transport.request(`${this.applicationPath}/catalogs/${encodeURIComponent(bounded(catalogId, "catalogId", 300))}/entries?${query}`, {}, true));
+  }
+
+  async resourceCatalogEntry(resource: string, catalogId: string, entryId: string): Promise<import("./types.js").CatalogEntry> {
+    const query = new URLSearchParams({ resource: bounded(resource, "resource", 512) });
+    return decode.catalogEntry(await this.transport.request(`${this.applicationPath}/catalogs/${encodeURIComponent(bounded(catalogId, "catalogId", 300))}/entries/${encodeURIComponent(bounded(entryId, "entryId", 300))}?${query}`, {}, true));
+  }
+
+  iterateAccountResources(options: Omit<import("./types.js").AccountResourceListOptions, "cursor"> & PageOptions = {}): AsyncGenerator<import("./types.js").AccountResource> {
+    return iteratePages(async (cursor, signal) => {
+      const page = await this.accountResources({ ...options, cursor, signal });
+      return { items: page.resources, nextCursor: page.nextCursor };
+    }, options);
+  }
+
+  async accountResources(options: import("./types.js").AccountResourceListOptions = {}): Promise<AccountResourceList> {
+    const query = new URLSearchParams();
+    if (options.parent !== undefined) query.set("parent", bounded(options.parent, "parent", 512));
     for (const resourceType of options.types ?? []) query.append("type", bounded(resourceType, "resourceType", 128));
     for (const accessState of options.accessStates ?? []) query.append("access_state", accessState);
     if (options.cursor) query.set("cursor", bounded(options.cursor, "cursor", 2048));
@@ -607,7 +832,7 @@ export class LotorBrowserClient {
       query.set("limit", String(options.limit));
     }
     const suffix = query.size === 0 ? "" : `?${query}`;
-    return decode.accountResources(await this.transport.request(`${this.applicationPath}/me/resources${suffix}`, {}, true));
+    return decode.accountResources(await this.transport.request(`${this.applicationPath}/me/resources${suffix}`, { signal: options.signal }, true));
   }
 
   async acceptAccountInvitation(invitationId: string): Promise<AccountInvitationMutation> {
@@ -623,7 +848,28 @@ export class LotorBrowserClient {
   }
 
   async setResourceCollaborationPolicy(resource: string, input: ResourceCollaborationPolicyOverride): Promise<ResourceCollaborationPolicyMutation> {
-    return decode.resourcePolicyMutation(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/collaboration-policy`, { method: "PUT", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify(input) }, true));
+    const normalizedResource = bounded(resource, "resource", 512);
+    const guests = input.guests;
+    if (guests.allowed === undefined && guests.allowedDomains === undefined) throw new Error("guest policy must contain a restriction");
+    if (guests.allowed !== undefined && typeof guests.allowed !== "boolean") throw new Error("guest allowed must be a boolean");
+    if (guests.allowedDomains !== undefined && (guests.allowedDomains.length < 1 || guests.allowedDomains.length > 100 || new Set(guests.allowedDomains).size !== guests.allowedDomains.length)) throw new Error("invalid guest allowed domains");
+    const result = decode.resourcePolicyMutation(await this.transport.request(`${this.applicationPath}/resources/${encodeURIComponent(normalizedResource)}/collaboration-policy`, { method: "PUT", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({ guests: {
+      ...(guests.allowed === undefined ? {} : { allowed: guests.allowed }),
+      ...(guests.allowedDomains === undefined ? {} : { allowed_domains: guests.allowedDomains.map(domain => { const value = bounded(domain, "allowed domain", 253); if (value.length < 3) throw new Error("allowed domain must contain at least 3 characters"); return value; }) }),
+    } }) }, true));
+    if (result.resource !== normalizedResource) throw new Error("Lotor collaboration policy returned a different resource");
+    return result;
+  }
+
+  private async createPortalSession(input: import("./types.js").CreatePortalSessionInput): Promise<import("./types.js").PortalSession> {
+    const returnUrl = safeRedirectUrl(input.returnUrl, "returnUrl");
+    const parsed = new URL(returnUrl);
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("returnUrl must not include credentials, query or fragment");
+    return decode.portal(await this.transport.request(`${this.applicationPath}/billing/portal-sessions`, {
+      method: "POST",
+      headers: { "X-Lotor-Request": "lotor-js-v1" },
+      body: JSON.stringify({ organization_id: bounded(input.organizationId, "organizationId", 256), return_url: returnUrl }),
+    }, true));
   }
 
   private async createCheckoutSession(input: CreateCheckoutSessionInput): Promise<CheckoutSession> {
@@ -646,6 +892,13 @@ export class LotorBrowserClient {
       body: JSON.stringify(body),
     }, true));
   }
+}
+
+function payloadObjectURL(value: string): URL {
+  const url = new URL(value);
+  const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+  if ((url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) || url.username || url.password || url.hash) throw new Error("invalid payload object URL");
+  return url;
 }
 
 function wireResourceLinkEnvelope(envelope: ResourceLinkEnvelopeSubmission): Record<string, string> {

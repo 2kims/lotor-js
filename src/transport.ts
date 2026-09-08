@@ -21,6 +21,40 @@ export interface BrowserRequestTransport {
   requestWithMetadata<T>(path: string, init?: RequestInit, authenticated?: boolean): Promise<{ body: T; headers: Headers }>;
 }
 
+const maximumJSONResponseBytes = 4 * 1024 * 1024;
+
+async function boundedJSON<T>(response: Response): Promise<T> {
+  if (!response.body) throw new Error("invalid Lotor JSON response");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maximumJSONResponseBytes) {
+        await reader.cancel();
+        throw new Error("Lotor response exceeds limit");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const joined = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(joined)) as T;
+  } catch {
+    throw new Error("invalid Lotor JSON response");
+  }
+}
+
 export class BrowserTransport {
   constructor(
     private readonly baseUrl: string,
@@ -50,6 +84,8 @@ export class BrowserTransport {
       ...init,
       headers,
       credentials: "omit",
+      cache: "no-store",
+      redirect: "error",
     });
     if (!response.ok) {
       throw browserResponseError(response.status);
@@ -57,7 +93,7 @@ export class BrowserTransport {
     if (response.status === 204) {
       return { body: undefined as T, headers: response.headers };
     }
-    return { body: await response.json() as T, headers: response.headers };
+    return { body: await boundedJSON<T>(response), headers: response.headers };
   }
 }
 
@@ -90,10 +126,10 @@ export class SameOriginBrowserTransport implements BrowserRequestTransport {
       if (!token) throw new LotorBrowserError("Lotor CSRF proof is unavailable", 403, "csrf_unavailable");
       headers.set("X-Lotor-CSRF", token);
     }
-    const response = await this.fetcher(path, { ...init, headers, credentials: "same-origin" });
+    const response = await this.fetcher(path, { ...init, headers, credentials: "same-origin", cache: "no-store", redirect: "error" });
     if (!response.ok) throw browserResponseError(response.status);
     if (response.status === 204) return { body: undefined as T, headers: response.headers };
-    return { body: await response.json() as T, headers: response.headers };
+    return { body: await boundedJSON<T>(response), headers: response.headers };
   }
 }
 

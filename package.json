@@ -1,6 +1,6 @@
 {
   "name": "@lotor.dev/lotor-js",
-  "version": "0.1.2-rc.7",
+  "version": "0.2.0-rc.1",
   "description": "Framework-independent browser client for Lotor's public application API",
   "license": "Apache-2.0",
   "type": "module",
@@ -27,7 +27,7 @@
     "api:update": "pnpm build && node scripts/check-api.mjs --update",
     "api:check": "pnpm build && node scripts/check-api.mjs",
     "package:check": "pnpm build && node scripts/check-package.mjs",
-    "test:tooling": "node --test tests/tooling/*.node.mjs",
+    "test:tooling": "node --test tests/tooling/release-semver.node.mjs tests/tooling/release-version.node.mjs tests/tooling/workflows.node.mjs",
     "verify:release-version": "node scripts/verify-release-version.mjs",
     "verify:workflows": "node scripts/verify-workflows.mjs"
   },
