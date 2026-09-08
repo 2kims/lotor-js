@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "target": "browser",
-  "source_commit": "452662128e842f9db918cc981dab6a93acd9cb67",
-  "version": "0.1.1-rc.7",
+  "source_commit": "185d7b09dd233c7a2b83a81594141503883bb54c",
+  "version": "0.2.0-rc.1",
   "files": [
     {
       "path": ".github/CODEOWNERS",
@@ -22,19 +22,23 @@
     },
     {
       "path": ".release-please-manifest.json",
-      "sha256": "8b33a5362d0a9eae2adb47d0f51cf9cf3acf70394ccdd147cf0e1266c61f8486"
+      "sha256": "17958de7093d76de84b5683b68d40018fcbe44d356fab826c5d23bc0318e7f4a"
+    },
+    {
+      "path": "api/async-helpers.d.ts",
+      "sha256": "6e0c3626073b12c8e80138365ed4eac5083f4e46d60bbf0fc83397145c880b47"
     },
     {
       "path": "api/client.d.ts",
-      "sha256": "02ed5b552d86ad51c973b9e5f6681afba8b80f3e51118eda73fc70d29162cc65"
+      "sha256": "adb4f31e664d0829ec19082f77833c72a537031dc21f8a33c40ed357e9510888"
     },
     {
       "path": "api/index.d.ts",
-      "sha256": "bd225610bb03f559815f2fd8b343d96011f5481cac3c31097e4df2a03cec8dfd"
+      "sha256": "3dd409f84e61e8921d283d55502aa7dc9dc1b65c6d5655e1b1f46e6077a3ab36"
     },
     {
       "path": "api/key-access.d.ts",
-      "sha256": "47379f0b24eccd6cfd8e76329c29ab3ca911883562d4ed68d463e9f7280b533d"
+      "sha256": "7350091f8e1589fe6ab7ec93222572f904a9f9884188a7f35f1cfb5de3ceb252"
     },
     {
       "path": "api/transport.d.ts",
@@ -42,11 +46,11 @@
     },
     {
       "path": "api/types.d.ts",
-      "sha256": "894a36f30ab53432f5f64cdc141e2dc4fd37dbf3b6f4f1499c29f6ed22db8496"
+      "sha256": "59bf9efe01d75c95899ff1870b347c22c52f76bc6eb2d0da6fb23f3d854f283b"
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "6d94b8ce3c563f58529d2aa6f63467f06281666127121a6b60028cedd88e640d"
+      "sha256": "30f488cf05a625fa48c3baa88497730670ff6ccc33709f6c6ec8c3b2c076bdee"
     },
     {
       "path": "LICENSE",
@@ -58,7 +62,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "409a514e2395f59273126d633266f7d695744e9a48d05bea83fc8d78bf72ea90"
+      "sha256": "00ff41c890c682c12d40dbf30117e27789e5e9370a081de2e46fda6d4c6ddb6b"
     },
     {
       "path": "pnpm-lock.yaml",
@@ -78,11 +82,11 @@
     },
     {
       "path": "scripts/check-api.mjs",
-      "sha256": "ae3c2ea0cf2be32e8647bbb81250b06eb30e638a7eb69e47d46c4526d6ee6d87"
+      "sha256": "32e7ae199d871afa8f0ee69a03be15afcc5bcfc84b74298c6162f3c7adf6e1b2"
     },
     {
       "path": "scripts/check-package.mjs",
-      "sha256": "5f65daa7ae0cd3c431e11f88453137f58adb37c913fd775755595aef2d0b54e4"
+      "sha256": "54cae31da61bf2c9134807736f8b6475f18c6983f2a5c94967ef3206bd0efa69"
     },
     {
       "path": "scripts/compare-semver.mjs",
@@ -101,20 +105,24 @@
       "sha256": "e6dfff82b7e34b838176941ff8bb879ff19f786db2a2fa16861d54548fe3b907"
     },
     {
+      "path": "src/async-helpers.ts",
+      "sha256": "694a97acb8b9c4442bcfa0140b7a3028fdb50d083e4899dbc5ab146ca7a2e4de"
+    },
+    {
       "path": "src/client.ts",
-      "sha256": "d3494a3709a89b3b76ea540673feee3c3fed59891137c773d7a878af4c0efa55"
+      "sha256": "cdb4c0af21202dd021146a81ee142cacd2b074d748fe4dad6fd577e10de47dbf"
     },
     {
       "path": "src/decode.ts",
-      "sha256": "8912fe9d9e4a4f915c69d5121009f543aecb6ed053327bdbadca66c67633ff7c"
+      "sha256": "1079f1866440008147838cda6dd3721179a9b28673ae4381c4167f12bebb606e"
     },
     {
       "path": "src/index.ts",
-      "sha256": "33405fdf62eb65a440345be0f947e3c41c414fefcf7a33f7040c851399fb5f2c"
+      "sha256": "ee2cafb17adce003ed90c4817baf72a62e6d0a85522532c4d6ae6bddfd3736a3"
     },
     {
       "path": "src/key-access.ts",
-      "sha256": "963cddd3f1ad33d93e1799bfbb8dd960236c09f8de0984cfc9b3ab83d589c6e0"
+      "sha256": "67f3f91de786c2397e92bc6fb2d8070d328bcddff42047645f77a71755365358"
     },
     {
       "path": "src/resource-payload.ts",
@@ -122,27 +130,71 @@
     },
     {
       "path": "src/transport.ts",
-      "sha256": "45583617efbbc7d8fbdaaa6ce17dc5fc7174c595845c49a3dd92c22e2e2343db"
+      "sha256": "e1970353527b9a6073ead417e23dc0c974a6de275f007ec1685215ed79e2741f"
     },
     {
       "path": "src/types.ts",
-      "sha256": "9cf64b7264113ee6da05a9da4f3f6c257c23ede5b42fad2d4ca3a3b4c8297fce"
+      "sha256": "6a6af8ab9a477921936a01235eb374b59c0e056cfbf8d640e7357f7ad34a1545"
+    },
+    {
+      "path": "tests/async-helpers.test.ts",
+      "sha256": "e4620b9cef1a8f9379bf03df2178c9f4306b409c4476cd759e48d85132fac750"
+    },
+    {
+      "path": "tests/billing-portal.test.ts",
+      "sha256": "6a91c927149424ad78990058d50feed268eba4691511d4665bede26c335ba540"
+    },
+    {
+      "path": "tests/catalog-discovery.test.ts",
+      "sha256": "10e996fd72798aa13ca832e085a986ed1ab1858a7364c2d4fe9ccbe329840673"
     },
     {
       "path": "tests/client.test.ts",
-      "sha256": "e874aee37f54e7628b340c155367501c22b10fa227e4aef2add211e4ba8d537a"
+      "sha256": "5cecb7812cd957b1447a59dfbbb118ba47f8ac916a8227fc0fe89659ea1d7598"
+    },
+    {
+      "path": "tests/encryption-action-context.test.ts",
+      "sha256": "1262c8a811590e18bf727f353ecb217013062031567178258a6c3243f671c65a"
     },
     {
       "path": "tests/key-access.test.ts",
-      "sha256": "51bf3685662feb541355c34f11e39317cb113444d938a963f86a8858ef01eae4"
+      "sha256": "fb4535cd23129fc675acfa4ae77a5a8186c1ccd34e26a9bc156bd1e200b783d5"
+    },
+    {
+      "path": "tests/organization-challenge.test.ts",
+      "sha256": "6ae0eca89f43c80bcd0be4a0f70633d0525a72fdc07033fbb84bf7c8ef6be193"
+    },
+    {
+      "path": "tests/organization-relay-discovery.test.ts",
+      "sha256": "9390740e6137cb05dc466b65d37525387cd85801f988c0b74519dc6fb8db931d"
+    },
+    {
+      "path": "tests/organization-relay.test.ts",
+      "sha256": "773a5146fc0ea7cc5f21b6ffb00b87420aea5ded44a6304c0f67029f719e22a4"
     },
     {
       "path": "tests/resource-payload.test.ts",
       "sha256": "dc2ba18f684a592a5cef7136302b3bf0beab97146c36614c74593bf280391077"
     },
     {
+      "path": "tests/resource-state.test.ts",
+      "sha256": "03c5f56f3bfc2b6102ed0c6764702356dc4ac5c6d5eb1c3a40735a2c30fe2dbd"
+    },
+    {
+      "path": "tests/scim-directory.test.ts",
+      "sha256": "6e0d072172918a267d85e30128de122e8e2b491f086722a640a2a4f81081fc8e"
+    },
+    {
+      "path": "tests/system-resource.test.ts",
+      "sha256": "5f5d5aa4400b7c6d68679ad48a8f4f59597d927e46ca2ef1af16a3c93bcfd28f"
+    },
+    {
       "path": "tests/tooling/compare-semver.node.mjs",
       "sha256": "3e276cfd55b681f2ba7ed9a0e2aa07b202c4f516ca12bda6a6540bf87a6ed7d2"
+    },
+    {
+      "path": "tests/tooling/openapi-e2ee-contract.node.mjs",
+      "sha256": "47257c15be8c0c4f85f4b9e9c8e7fca96abd1f4f26e7130a63feb7b036d17c35"
     },
     {
       "path": "tests/tooling/release-version.node.mjs",
@@ -151,6 +203,10 @@
     {
       "path": "tests/tooling/workflows.node.mjs",
       "sha256": "f44f29e1879f40ece735a9046f0a42b5c003dd6afb4d507856df7e3a320760ed"
+    },
+    {
+      "path": "tests/transport-freshness.test.ts",
+      "sha256": "77d968f233218e7c404adca2bc3e507c7a20594c18ec19b77f87f6aa8b9cd2c2"
     },
     {
       "path": "tsconfig.json",

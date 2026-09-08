@@ -78,7 +78,8 @@ test("wraps and unwraps a resource key with bound grant context", async () => {
     recipientEncryptionPublicKey: new Uint8Array(await crypto.subtle.exportKey("raw", recipient.publicKey)),
   };
   const resourceKey = crypto.getRandomValues(new Uint8Array(32));
-  const request = await createResourceEnvelope({ clientId: "avault_web", issuer: "user:owner", issuerKeyId: "owner_key_1", issuerSigningPrivateKey: issuer.privateKey, member, resourceKey });
+  const associatedData = new TextEncoder().encode(["lotor-resource-envelope-v1", "tenant", "app", "env", member.keyResource, "1", member.subject, member.recipientKeyId, "1", "2", "3", "4", "5"].join("\0"));
+  const request = await createResourceEnvelope({ clientId: "avault_web", issuer: "user:owner", issuerKeyId: "owner_key_1", issuerSigningPrivateKey: issuer.privateKey, member, resourceKey, associatedData });
   const envelope = {
     ...member, encryptionSuite: request.encryption_suite, ciphertext: decodeBase64url(request.ciphertext),
     aadHash: decodeBase64url(request.aad_hash), issuer: request.issuer, issuerKeyId: request.issuer_key_id,
@@ -91,6 +92,11 @@ test("wraps and unwraps a resource key with bound grant context", async () => {
   const forged = { ...envelope, signature: new Uint8Array(envelope.signature) };
   forged.signature[0] ^= 1;
   await assert.rejects(() => unwrapResourceEnvelope("avault_web", forged, recipient.privateKey), /signature/u);
+  await assert.rejects(() => unwrapResourceEnvelope("avault_web", { ...envelope, subject: "user:bob" }, recipient.privateKey), /context mismatch/u);
+  await assert.rejects(() => unwrapResourceEnvelope("avault_web", { ...envelope, issuerKeyStatus: "revoked" }, recipient.privateKey), /issuer key/u);
+  const tampered = JSON.parse(new TextDecoder().decode(envelope.ciphertext));
+  tampered.actor = "user:attacker";
+  await assert.rejects(() => unwrapResourceEnvelope("avault_web", { ...envelope, ciphertext: new TextEncoder().encode(JSON.stringify(tampered)) }, recipient.privateKey), /signature/u);
 });
 
 test("opens a short-lived managed resource session without an account passphrase", async () => {
