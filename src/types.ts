@@ -142,6 +142,7 @@ export interface CollaborationResourceEncryption {
 export interface CollaborationResource {
   id: string;
   linkId?: string;
+  principalSubject?: string;
   resource: string;
   resourceType: string;
   displayName: string;
@@ -154,10 +155,11 @@ export interface CollaborationResource {
 }
 
 export interface ResourceCatalogBinding {
+  resource: string;
   catalogId: string;
   snapshotId: string;
   snapshotDigest: string;
-  entryKinds: Array<"api.operation">;
+  entryKinds: string[];
   resourceRevision: number;
 }
 
@@ -324,6 +326,16 @@ export interface ResourcePayloadMutation {
   idempotent: boolean;
 }
 
+export interface SystemResourceCreation {
+  resourceType: "group" | "service_account";
+  displayName: string;
+  parent: string;
+  keyScope?: "organization" | "resource";
+}
+
+export interface CreatePortalSessionInput { organizationId: string; returnUrl: string }
+export interface PortalSession { id: string; url: string }
+
 interface CheckoutSessionInput {
   organizationId: string;
   productId: string;
@@ -386,10 +398,10 @@ export interface ResourceLinkChange {
   cascade?: boolean;
 }
 export interface ResourceLinkCandidateSearchInput {
-  query: string; relation: string; kinds?: Array<"user" | "group">; limit?: number; cursor?: string;
+  query: string; relation: string; kinds?: Array<"user" | "group" | "service_account">; limit?: number; cursor?: string;
 }
 export interface ResourceLinkCandidate {
-  kind: "user" | "group"; displayName: string; subject?: string; resource?: string;
+  kind: "user" | "group" | "service_account"; displayName: string; subject?: string; resource?: string;
   subjectRelation?: "member"; email?: string;
   linkState: "available" | "linked" | "pending_invitation"; selectable: boolean; reason?: string;
 }
@@ -402,7 +414,7 @@ export interface ResourceLinkOutcome {
 export interface ResourceLinkKeyRequirement {
   manifestItemId: string; grantId: string; resource: string; relation: string; keyResource: string; keyVersion: string;
   recipientSubject: string; recipientKeyId: string; encryptionAlgorithm: "X25519"; publicKey: Uint8Array;
-  invitationId?: string; activation?: "active" | "pending_invitation";
+  invitationId?: string; activation?: "active_access" | "pending_invitation";
 }
 export interface ResourceLinkEnvelopeSubmission {
   manifestItemId: string; encryptionSuite: "X25519-HKDF-SHA256-AES-256-GCM";
@@ -414,6 +426,60 @@ export interface OrganizationE2EEPolicyInput {
   automationExecutor: "managed" | "customer_box" | "none";
   functionBindingId?: string;
   resourceKeyPolicy: "organization_only" | "organization_default" | "resource_only";
+}
+
+export interface SCIMDirectory {
+  id: string;
+  resource: string;
+  organization: string;
+  credentialResource: string;
+  status: "disabled" | "active";
+  revision: number;
+  baseUrl: string;
+}
+
+export interface SCIMDirectoryCreateInput {
+  directoryResource: string;
+  credentialResource: string;
+  expectedResourceRevision: number;
+  expectedLifecycleGeneration: number;
+}
+
+export interface SCIMDirectoryUpdateInput {
+  enabled: boolean;
+  expectedRevision: number;
+}
+
+export interface SCIMDirectoryList {
+  directories: SCIMDirectory[];
+  nextCursor: string | null;
+}
+
+export interface OrganizationFunctionBindingBootstrap {
+  bindingId: string;
+  status: "pending";
+  /** One-time credential; expires after 15 minutes. Never persist in browser storage. */
+  bootstrapToken: string;
+}
+
+export interface OrganizationFunctionBindingStatus {
+  bindingId: string;
+  /** Transport registration state, not proof of encryption readiness. */
+  status: "pending" | "expired" | "active" | "revoked";
+  /** Unix microseconds. */
+  bootstrapExpiresAt?: number;
+  /** Unix microseconds. */
+  lastSeenAt?: number;
+  boxSubject?: string;
+  signingKeyId?: string;
+  challenge: OrganizationFunctionBindingChallengeStatus;
+}
+export interface OrganizationFunctionBindingChallengeStatus {
+  status: "not_started" | "pending" | "ready" | "expired" | "failed" | "unavailable";
+  /** Unix microseconds; completion deadline, not verified-readiness lifetime. */
+  expiresAt?: number;
+  /** Unix microseconds. */
+  challengedAt?: number;
 }
 export interface OrganizationE2EEPolicy extends OrganizationE2EEPolicyInput {
   organization: string;
@@ -427,9 +493,12 @@ export interface ResourceSessionEnvelope {
 export interface ResourceSession extends ResourceSessionEnvelope {
   resourceKey: Uint8Array;
 }
+export interface EncryptionActionKeyRequirement extends ResourceLinkKeyRequirement {
+  associatedData: Uint8Array;
+}
 export interface EncryptionAction {
   id: string; kind: "principal_key_enroll" | "resource_key_create" | "envelope_rewrap" | "resource_key_rotate";
-  resource: string; status: "awaiting_browser"; revision: string; keyRequirements: ResourceLinkKeyRequirement[];
+  resource: string; status: "awaiting_browser"; revision: string; keyRequirements: EncryptionActionKeyRequirement[];
 }
 export interface EncryptionActionMutation { id: string; status: "projecting" | "completed"; idempotent: boolean }
 export interface ResourceLinkResult {
@@ -456,7 +525,7 @@ export interface ResourceLinkSendResult {
 export interface UnlinkResult { id: string; resource: string; status: "revoked"; rekeyRequired: boolean; rekeySubjects: string[]; idempotent: boolean }
 export interface CollaboratorPath { type: "direct" | "group"; relation: string; linkId?: string; group?: string; subjectRelation?: string; via: Array<{ resource: string; subjectRelation: string }> }
 export interface ResourceCollaborator {
-  kind: "user" | "group" | "invitation"; id: string; linkId?: string; resource?: string;
+  kind: "user" | "group" | "service_account" | "invitation"; id: string; linkId?: string; resource?: string;
   displayName?: string; email?: string; relations: string[]; status: string; subjectRelation?: string;
   memberCount?: number; access?: { direct: boolean; paths: CollaboratorPath[] };
   recipient?: { type: "user" | "email" | "group"; subject?: string; display?: string }; expiresAt?: number;
@@ -466,7 +535,7 @@ export interface ResourceSearchResourceFilters {
   search?: string; resources?: string[]; types?: string[]; parent?: string; statuses?: string[];
 }
 export interface ResourceSearchCollaboratorFilters {
-  search?: string; email?: string; subjects?: string[]; kinds?: Array<"user" | "group" | "invitation">;
+  search?: string; email?: string; subjects?: string[]; kinds?: Array<"user" | "group" | "service_account" | "invitation">;
   relations?: string[]; statuses?: string[]; view?: "direct" | "effective"; viaGroups?: string[];
   resourceSubject?: string; direct?: boolean;
 }
@@ -482,15 +551,43 @@ export interface ResourceSearchResult {
   parent?: ResourceSearchParent; collaboratorMatches?: ResourceCollaborator[];
 }
 export interface ResourceSearchList { resources: ResourceSearchResult[]; nextCursor: string | null }
-export interface AccountResourceReference { id: string; type: string; name: string }
+export interface CatalogEntry {
+  id: string; catalogId: string; semanticKey: string; entryKind: string;
+  revisionId: string; revisionDigest: string; definition: Record<string, unknown>;
+}
+export interface CatalogEntryList { items: CatalogEntry[]; nextCursor: string | null }
+
+export interface DiscoverableCatalog {
+  id: string; namespace: string; catalogType: "api" | "generic";
+  visibility: "application_private" | "organization_private";
+  organization?: string; publishedSnapshotId: string; createdAt: number;
+}
+export interface DiscoverableCatalogList { items: DiscoverableCatalog[]; nextCursor: string | null }
+export interface PublishedCatalogEntryList extends CatalogEntryList { snapshotId: string }
+export interface CatalogBindingInput {
+  catalogId: string; snapshotId: string; entryKinds: string[];
+  expectedResourceRevision: number; expectedLifecycleGeneration: number;
+}
+export interface ResourceCredentialMetadata {
+  id: string; resource: string; issuedTo: string; status: string; displayHint: string;
+  version: number; createdAt: number; expiresAt?: number; revokeAt?: number; revokedAt?: number; lastUsedAt?: number;
+}
+export interface IssuedResourceCredential extends ResourceCredentialMetadata { credential: string }
+export interface ResourceCredentialIssueInput { issuedTo: string; expiresAt?: number }
+export interface ResourceCredentialRotateInput { revokePreviousAt: number; expiresAt?: number }
+export interface AccountResourceReference { id: string; resource: string; type: string; name: string }
 export interface AccountResourcePathStep extends AccountResourceReference { subjectRelation: string }
 export interface AccountResourceAccessPath { type: "direct" | "group"; relation: string; via: AccountResourcePathStep[] }
-export interface AccountResource {
-  id: string; type: string; name: string; parent?: AccountResourceReference; relations: string[];
+export interface AccountResource extends AccountResourceReference {
+  parent?: AccountResourceReference; relations: string[];
   accessState: "active" | "pending_encryption";
   access: { direct: boolean; paths: AccountResourceAccessPath[] };
 }
 export interface AccountResourceList { resources: AccountResource[]; nextCursor: string | null }
+export interface AccountResourceListOptions {
+  types?: string[]; parent?: string; accessStates?: Array<"active" | "pending_encryption">;
+  cursor?: string; limit?: number; signal?: AbortSignal;
+}
 export interface AccountResourceGroup { type: string; resources: AccountResource[] }
 
 /** Groups an account resource page without assuming or hard-coding tenant resource types. */
@@ -503,7 +600,7 @@ export function groupResourcesByType(resources: readonly AccountResource[]): Acc
   }
   return [...grouped].map(([type, items]) => ({ type, resources: items }));
 }
-export interface AccountInvitationResource { id: string; type: string; name: string }
+export type AccountInvitationResource = AccountResourceReference;
 export interface AccountInvitation {
   id: string; resource: AccountInvitationResource; relation: string;
   status: "pending_acceptance" | "pending_approval"; expiresAt: number; encryptionRequired: boolean;
@@ -511,7 +608,7 @@ export interface AccountInvitation {
 export interface AccountInvitationList { invitations: AccountInvitation[]; nextCursor: string | null }
 export interface AccountInvitationMutation { id: string; status: "active" | "pending_encryption" | "declined" }
 export interface ResourceInvitationMutation { id: string; resource: string; relation: string; status: string; idempotent: boolean }
-export interface ResourceCollaborationPolicyOverride { guests: { allowed?: boolean; allowed_domains?: string[] } }
+export interface ResourceCollaborationPolicyOverride { guests: { allowed?: boolean; allowedDomains?: string[] } }
 export interface ResourceCollaborationPolicyMutation { resource: string; revision: number }
 
 /** In-memory storage is intentionally non-persistent and is the SDK default. */

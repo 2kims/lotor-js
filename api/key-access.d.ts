@@ -89,6 +89,7 @@ export interface CreateResourceEnvelopeInput {
     issuerSigningPrivateKey: CryptoKey;
     member: ResourceProvisioningMember;
     resourceKey: Uint8Array;
+    associatedData: Uint8Array;
 }
 export interface ResourceEnvelopeRequest {
     scope: string;
