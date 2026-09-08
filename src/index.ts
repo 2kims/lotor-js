@@ -1,3 +1,4 @@
+export { iteratePages, pollOperation, type Page, type PageOptions, type PollOptions } from "./async-helpers.js";
 export {
   LotorBrowserClient,
   type LotorBrowserOptions,
@@ -11,6 +12,23 @@ export {
   type CSRFTokenProvider,
 } from "./transport.js";
 export type {
+  SCIMDirectory,
+  SCIMDirectoryCreateInput,
+  SCIMDirectoryUpdateInput,
+  SCIMDirectoryList,
+  OrganizationFunctionBindingBootstrap,
+  OrganizationFunctionBindingStatus,
+  DiscoverableCatalog,
+  DiscoverableCatalogList,
+  PublishedCatalogEntryList,
+  CatalogBindingInput,
+  CatalogEntry,
+  CatalogEntryList,
+  AccountResourceListOptions,
+  ResourceCredentialMetadata,
+  IssuedResourceCredential,
+  ResourceCredentialIssueInput,
+  ResourceCredentialRotateInput,
   AnonymousSession,
   ApplicationSession,
   AuthenticatedSession,
@@ -93,6 +111,7 @@ export type {
   ResourceSessionEnvelope,
   ResourceSession,
   EncryptionAction,
+  EncryptionActionKeyRequirement,
   EncryptionActionMutation,
 } from "./types.js";
 export { MemoryTokenStore } from "./types.js";

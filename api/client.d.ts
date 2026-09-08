@@ -1,4 +1,5 @@
 import { type BrowserFetch, type CSRFTokenProvider } from "./transport.js";
+import { type PageOptions, type PollOptions } from "./async-helpers.js";
 import { type ApplicationSession, type AuthenticatedSession, type CheckoutSession, type CreateCheckoutSessionInput, type OrganizationSummary, type PasswordlessChallenge, type PublicApplicationConfiguration, type PublicApplicationPricing, type TokenStore, type EnrollSubjectKeyInput, type SubjectKeyEnrollment, type SubjectKeyMutation, type SubjectKeyRecord, type ResourceLinkChange, type ResourceLinkCandidateSearchInput, type ResourceLinkCandidateSearchResult, type ResourceLinkPreflight, type ResourceLinkSendInput, type ResourceLinkSendResult, type ResourceLinkResult, type UnlinkResult, type ResourceCollaborationPolicyOverride, type ResourceCollaborationPolicyMutation, type ResourceCollaboratorList, type ResourceSearchInput, type ResourceSearchList, type AccountInvitationList, type AccountInvitationMutation, type AccountResourceList, type ResourceInvitationMutation, type ClaimSubjectKeyInput, type ClaimedSubjectKey, type ResourceLinkEnvelopeSubmission, type OrganizationE2EEPolicy, type ResourceSessionEnvelope, type EncryptionAction, type EncryptionActionMutation, type ResourcePayloadAccessLease, type ResourcePayloadManifest, type ResourcePayloadMutation, type ResourcePayloadUploadInput, type ResourcePayloadUploadIntent, type DurableOperation, type ResourceLifecycleFence, type ResourceMoveInput, type ResourceDeleteInput } from "./types.js";
 interface LotorBrowserCommonOptions {
     clientId: string;
@@ -29,6 +30,7 @@ export declare class LotorBrowserClient {
     readonly publishableKey: string;
     readonly billing: {
         createCheckoutSession: (input: CreateCheckoutSessionInput) => Promise<CheckoutSession>;
+        createPortalSession: (input: import("./types.js").CreatePortalSessionInput) => Promise<import("./types.js").PortalSession>;
     };
     private readonly transport;
     private readonly tokenStore;
@@ -44,19 +46,28 @@ export declare class LotorBrowserClient {
     logout(): Promise<void>;
     organizations(): Promise<OrganizationSummary[]>;
     createOrganization(name: string, idempotencyKey: string): Promise<OrganizationSummary>;
+    createSystemResource(input: import("./types.js").SystemResourceCreation, idempotencyKey: string): Promise<DurableOperation>;
     putResource(resource: string, input: import("./types.js").ResourceRegistration): Promise<import("./types.js").CollaborationResource>;
     resource(resource: string): Promise<import("./types.js").CollaborationResource>;
     moveResource(resource: string, input: ResourceMoveInput, idempotencyKey: string): Promise<DurableOperation>;
     disableResource(resource: string, input: ResourceLifecycleFence, idempotencyKey: string): Promise<DurableOperation>;
     restoreResource(resource: string, input: ResourceLifecycleFence, idempotencyKey: string): Promise<DurableOperation>;
     deleteResource(resource: string, input: ResourceDeleteInput, idempotencyKey: string): Promise<DurableOperation>;
-    operation(operationId: string): Promise<DurableOperation>;
+    operation(operationId: string, options?: {
+        signal?: AbortSignal;
+    }): Promise<DurableOperation>;
+    waitForOperation(operationId: string, options?: PollOptions): Promise<DurableOperation>;
     private resourceLifecycleOperation;
     resourcePayload(resource: string, slot: string): Promise<ResourcePayloadManifest>;
     createResourcePayloadUpload(resource: string, slot: string, input: ResourcePayloadUploadInput): Promise<ResourcePayloadUploadIntent>;
     commitResourcePayload(resource: string, slot: string, intent: ResourcePayloadUploadIntent): Promise<ResourcePayloadManifest>;
     uploadResourcePayloadObject(intent: ResourcePayloadUploadIntent, object: Uint8Array): Promise<void>;
     accessResourcePayload(resource: string, slot: string, payloadVersion?: number): Promise<ResourcePayloadAccessLease>;
+    /** Downloads and verifies up to 64 MiB. Returns stored bytes without decryption.
+     * Custom fetch implementations must not inject credentials into storage requests. */
+    downloadResourcePayload(lease: ResourcePayloadAccessLease, options?: {
+        signal?: AbortSignal;
+    }): Promise<Uint8Array>;
     rewrapResourcePayload(resource: string, slot: string, input: import("./types.js").ResourcePayloadRewrapInput): Promise<import("./types.js").ResourcePayloadRewrapResult>;
     deleteResourcePayload(resource: string, slot: string, idempotencyKey: string): Promise<ResourcePayloadMutation>;
     private resourcePayloadPath;
@@ -68,6 +79,18 @@ export declare class LotorBrowserClient {
     resourceSessionEnvelope(resource: string, sessionPublicKey: string, clientNonce: string): Promise<ResourceSessionEnvelope>;
     resourceSession(resource: string): Promise<import("./types.js").ResourceSession>;
     organizationE2EEPolicy(organization: string): Promise<OrganizationE2EEPolicy>;
+    createSCIMDirectory(organization: string, input: import("./types.js").SCIMDirectoryCreateInput, idempotencyKey: string): Promise<import("./types.js").SCIMDirectory>;
+    scimDirectory(organization: string, directoryId: string): Promise<import("./types.js").SCIMDirectory>;
+    updateSCIMDirectory(organization: string, directoryId: string, input: import("./types.js").SCIMDirectoryUpdateInput, idempotencyKey: string): Promise<import("./types.js").SCIMDirectory>;
+    scimDirectories(organization: string, options?: {
+        cursor?: string;
+        limit?: number;
+    }): Promise<import("./types.js").SCIMDirectoryList>;
+    createOrganizationFunctionBinding(organization: string): Promise<import("./types.js").OrganizationFunctionBindingBootstrap>;
+    organizationFunctionBindings(organization: string): Promise<import("./types.js").OrganizationFunctionBindingStatus[]>;
+    organizationFunctionBinding(organization: string, bindingId: string): Promise<import("./types.js").OrganizationFunctionBindingStatus>;
+    startOrganizationFunctionBindingChallenge(organization: string, bindingId: string): Promise<import("./types.js").OrganizationFunctionBindingChallengeStatus>;
+    revokeOrganizationFunctionBinding(organization: string, bindingId: string): Promise<void>;
     configureOrganizationE2EE(organization: string, input: import("./types.js").OrganizationE2EEPolicyInput): Promise<OrganizationE2EEPolicy>;
     encryptionActions(): Promise<EncryptionAction[]>;
     completeEncryptionAction(jobId: string, revision: string, envelopes: ResourceLinkEnvelopeSubmission[]): Promise<EncryptionActionMutation>;
@@ -85,8 +108,8 @@ export declare class LotorBrowserClient {
         resourceSubject?: string;
         viaGroup?: string;
         direct?: boolean;
-        kind?: "user" | "group" | "invitation";
-        kinds?: Array<"user" | "group" | "invitation">;
+        kind?: "user" | "group" | "service_account" | "invitation";
+        kinds?: Array<"user" | "group" | "service_account" | "invitation">;
         status?: string;
         statuses?: string[];
         relations?: string[];
@@ -98,16 +121,37 @@ export declare class LotorBrowserClient {
         cursor?: string;
         limit?: number;
     }): Promise<AccountInvitationList>;
-    accountResources(options?: {
-        types?: string[];
-        accessStates?: Array<"active" | "pending_encryption">;
+    /** Lists metadata only, never recoverable credential presentations. */
+    resourceCredentials(resource: string): Promise<import("./types.js").ResourceCredentialMetadata[]>;
+    /** Returns the one-time presentation to the caller; the SDK never stores it. */
+    issueResourceCredential(resource: string, input: import("./types.js").ResourceCredentialIssueInput, idempotencyKey: string): Promise<import("./types.js").IssuedResourceCredential>;
+    rotateResourceCredential(resource: string, credentialId: string, input: import("./types.js").ResourceCredentialRotateInput, idempotencyKey: string): Promise<import("./types.js").IssuedResourceCredential>;
+    revokeResourceCredential(resource: string, credentialId: string, idempotencyKey: string): Promise<import("./types.js").ResourceCredentialMetadata>;
+    private credentialMutation;
+    /** Lists explicitly discoverable published catalogs within the user's scope. */
+    availableCatalogs(options?: {
         cursor?: string;
         limit?: number;
-    }): Promise<AccountResourceList>;
+    }): Promise<import("./types.js").DiscoverableCatalogList>;
+    availableCatalogEntries(catalogId: string, options?: {
+        cursor?: string;
+        limit?: number;
+    }): Promise<import("./types.js").PublishedCatalogEntryList>;
+    bindResourceCatalog(resource: string, input: import("./types.js").CatalogBindingInput, idempotencyKey: string): Promise<import("./types.js").DurableOperation>;
+    private catalogPageQuery;
+    /** Reads only the published snapshot pinned to an authorized resource. */
+    resourceCatalogEntries(resource: string, catalogId: string, options?: {
+        cursor?: string;
+        limit?: number;
+    }): Promise<import("./types.js").CatalogEntryList>;
+    resourceCatalogEntry(resource: string, catalogId: string, entryId: string): Promise<import("./types.js").CatalogEntry>;
+    iterateAccountResources(options?: Omit<import("./types.js").AccountResourceListOptions, "cursor"> & PageOptions): AsyncGenerator<import("./types.js").AccountResource>;
+    accountResources(options?: import("./types.js").AccountResourceListOptions): Promise<AccountResourceList>;
     acceptAccountInvitation(invitationId: string): Promise<AccountInvitationMutation>;
     declineAccountInvitation(invitationId: string): Promise<AccountInvitationMutation>;
     acceptResourceInvitation(ticket: string): Promise<ResourceInvitationMutation>;
     setResourceCollaborationPolicy(resource: string, input: ResourceCollaborationPolicyOverride): Promise<ResourceCollaborationPolicyMutation>;
+    private createPortalSession;
     private createCheckoutSession;
 }
 export {};

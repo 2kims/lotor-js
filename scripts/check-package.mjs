@@ -28,6 +28,8 @@ try {
     "LICENSE",
     "README.md",
     "SECURITY.md",
+    "dist/async-helpers.d.ts",
+    "dist/async-helpers.js",
     "dist/client.d.ts",
     "dist/client.js",
     "dist/decode.d.ts",

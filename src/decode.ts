@@ -23,6 +23,34 @@ import type {
 } from "./types.js";
 import { decodeBase64url, type EncryptedResourceEnvelope } from "./key-access.js";
 
+export function scimDirectory(value: unknown): import("./types.js").SCIMDirectory {
+  const input = record(value, "SCIM directory");
+  const fields = ["id", "resource", "organization", "credential_resource", "status", "revision", "base_url"];
+  if (Object.keys(input).some(key => !fields.includes(key))) throw new Error("unexpected SCIM directory field");
+  for (const key of ["id", "resource", "organization", "credential_resource"]) {
+    const text = string(input[key], key);
+    if (!text || text.length > 256) throw new Error(`invalid SCIM ${key}`);
+  }
+  if (input.status !== "disabled" && input.status !== "active") throw new Error("invalid SCIM directory status");
+  const revision = integer(input.revision, "SCIM revision");
+  if (revision < 1) throw new Error("invalid SCIM revision");
+  const baseUrl = string(input.base_url, "SCIM base URL");
+  const url = new URL(baseUrl);
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("invalid SCIM base URL");
+  return { id: input.id as string, resource: input.resource as string, organization: input.organization as string,
+    credentialResource: input.credential_resource as string, status: input.status, revision, baseUrl };
+}
+
+export function scimDirectoryList(value: unknown): import("./types.js").SCIMDirectoryList {
+  const input = record(value, "SCIM directory list");
+  if (Object.keys(input).some(key => key !== "directories" && key !== "next_cursor")) throw new Error("unexpected SCIM directory list field");
+  const directories = array(input.directories, "SCIM directories").map(scimDirectory);
+  if (directories.length > 100) throw new Error("SCIM page exceeds maximum");
+  const nextCursor = input.next_cursor === null ? null : string(input.next_cursor, "SCIM cursor");
+  if (nextCursor !== null && (!nextCursor || nextCursor.length > 4096)) throw new Error("invalid SCIM cursor");
+  return { directories, nextCursor };
+}
+
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`invalid ${name} response`);
@@ -33,6 +61,12 @@ function record(value: unknown, name: string): Record<string, unknown> {
 function string(value: unknown, name: string): string {
   if (typeof value !== "string") throw new Error(`invalid ${name} response`);
   return value;
+}
+
+function enumString<const T extends readonly string[]>(value: unknown, name: string, allowed: T): T[number] {
+  const decoded = string(value, name);
+  if (!(allowed as readonly string[]).includes(decoded)) throw new Error(`invalid ${name} response`);
+  return decoded as T[number];
 }
 
 function number(value: unknown, name: string): number {
@@ -100,7 +134,7 @@ export function resourceLinkResult(value: unknown): ResourceLinkResult {
         recipientSubject: string(item.recipient_subject, "recipient subject"), recipientKeyId: string(item.recipient_key_id, "recipient key"),
         encryptionAlgorithm: "X25519" as const, publicKey: bytes(item.public_key, "recipient public key"),
         ...(item.invitation_id === undefined ? {} : { invitationId: string(item.invitation_id, "invitation id") }),
-        ...(item.activation === undefined ? {} : { activation: string(item.activation, "key activation") as "active" | "pending_invitation" }) }; }),
+        ...(item.activation === undefined ? {} : { activation: enumString(item.activation, "key activation", ["active_access", "pending_invitation"] as const) }) }; }),
     impact: { impactedResources: array(impact.impacted_resources, "impacted resources").map((item) => string(item, "impacted resource")),
       retainedResources: array(impact.retained_resources, "retained resources").map((item) => string(item, "retained resource")),
       rekeyResources: array(impact.rekey_resources, "rekey resources").map((item) => string(item, "rekey resource")) },
@@ -129,6 +163,33 @@ export function organizationE2EEPolicy(value: unknown): OrganizationE2EEPolicy {
     status: string(input.status, "E2EE policy status") as OrganizationE2EEPolicy["status"], revision: integer(input.revision, "E2EE policy revision") };
 }
 
+export function organizationFunctionBindingBootstrap(value: unknown): import("./types.js").OrganizationFunctionBindingBootstrap {
+  const input = record(value, "organization box bootstrap");
+  if (input.status !== "pending" || typeof input.binding_id !== "string" || !/^efb_[A-Za-z0-9_-]+$/.test(input.binding_id) || typeof input.bootstrap_token !== "string" || !input.bootstrap_token.startsWith("e2ee_bootstrap_") || input.bootstrap_token.length <= 15) throw new Error("invalid organization box bootstrap response");
+  return { bindingId: input.binding_id, status: "pending", bootstrapToken: input.bootstrap_token };
+}
+
+export function organizationFunctionBindingStatus(value: unknown): import("./types.js").OrganizationFunctionBindingStatus {
+  const input = record(value, "organization box status");
+  if (typeof input.binding_id !== "string" || !/^efb_[A-Za-z0-9_-]+$/.test(input.binding_id) || !["pending", "expired", "active", "revoked"].includes(String(input.status)) || "bootstrap_token" in input || "connector_token" in input || "bootstrap_token_hash" in input || "connector_token_hash" in input) throw new Error("invalid organization box status response");
+  return { bindingId: input.binding_id, status: input.status as import("./types.js").OrganizationFunctionBindingStatus["status"],
+    challenge: organizationFunctionBindingChallengeStatus(input.challenge),
+    ...(input.bootstrap_expires_at === undefined ? {} : { bootstrapExpiresAt: integer(input.bootstrap_expires_at, "bootstrap expiry") }),
+    ...(input.last_seen_at === undefined ? {} : { lastSeenAt: integer(input.last_seen_at, "box last seen") }),
+    ...(input.box_subject === undefined ? {} : { boxSubject: string(input.box_subject, "box subject") }),
+    ...(input.signing_key_id === undefined ? {} : { signingKeyId: string(input.signing_key_id, "box signing key") }),
+  };
+}
+
+export function organizationFunctionBindingChallengeStatus(value: unknown): import("./types.js").OrganizationFunctionBindingChallengeStatus {
+  const input = record(value, "organization box challenge");
+  if (!["not_started", "pending", "ready", "expired", "failed", "unavailable"].includes(String(input.status)) || Object.keys(input).some(key => !["status", "expires_at", "challenged_at"].includes(key))) throw new Error("invalid organization box challenge response");
+  if ((input.status === "ready" && input.challenged_at === undefined) || (["pending", "expired"].includes(String(input.status)) && input.expires_at === undefined)) throw new Error("missing organization box challenge evidence");
+  return { status: input.status as import("./types.js").OrganizationFunctionBindingChallengeStatus["status"],
+    ...(input.expires_at === undefined ? {} : { expiresAt: integer(input.expires_at, "challenge expiry") }),
+    ...(input.challenged_at === undefined ? {} : { challengedAt: integer(input.challenged_at, "challenge completion") }) };
+}
+
 export function resourceSessionEnvelope(value: unknown): ResourceSessionEnvelope {
   const input = record(value, "resource session envelope");
   return { resource: string(input.resource, "resource"), keyResource: string(input.key_resource, "key resource"),
@@ -143,7 +204,14 @@ export function encryptionActions(value: unknown): EncryptionAction[] {
   return array(input.actions, "encryption actions").map((raw) => { const action = record(raw, "encryption action"); return {
     id: string(action.id, "action id"), kind: string(action.kind, "action kind") as EncryptionAction["kind"],
     resource: string(action.resource, "action resource"), status: string(action.status, "action status") as "awaiting_browser",
-    revision: string(action.revision, "action revision"), keyRequirements: keyRequirements(action.key_requirements),
+    revision: string(action.revision, "action revision"), keyRequirements: array(action.key_requirements, "key requirements").map((raw) => {
+      const item = record(raw, "key requirement");
+      const encoded = string(item.associated_data, "associated data");
+      if (!/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error("invalid associated data");
+      const associatedData = bytes(encoded, "associated data");
+      if (associatedData.length === 0) throw new Error("invalid associated data");
+      return { ...keyRequirements([item])[0]!, associatedData };
+    }),
   }; });
 }
 
@@ -156,12 +224,12 @@ export function encryptionActionMutation(value: unknown): EncryptionActionMutati
 export function resourceLinkCandidates(value: unknown): ResourceLinkCandidateSearchResult {
   const input = record(value, "resource link candidates");
   return { candidates: array(input.candidates, "link candidates").map((raw) => { const item = record(raw, "link candidate"); return {
-    kind: string(item.kind, "candidate kind") as "user" | "group", displayName: string(item.display_name, "candidate display name"),
+    kind: enumString(item.kind, "candidate kind", ["user", "group", "service_account"] as const), displayName: string(item.display_name, "candidate display name"),
     ...(item.subject === undefined ? {} : { subject: string(item.subject, "candidate subject") }),
     ...(item.resource === undefined ? {} : { resource: string(item.resource, "candidate resource") }),
     ...(item.subject_relation === undefined ? {} : { subjectRelation: string(item.subject_relation, "candidate subject relation") as "member" }),
     ...(item.email === undefined ? {} : { email: string(item.email, "candidate email") }),
-    linkState: string(item.link_state, "candidate link state") as "available" | "linked" | "pending_invitation",
+    linkState: enumString(item.link_state, "candidate link state", ["available", "linked", "pending_invitation"] as const),
     selectable: boolean(item.selectable, "candidate selectable"), ...(item.reason === undefined ? {} : { reason: string(item.reason, "candidate reason") }),
   }; }), nextCursor: input.next_cursor === null ? null : string(input.next_cursor, "candidate cursor") };
 }
@@ -177,7 +245,9 @@ export function unlinkResult(value: unknown): UnlinkResult {
 
 export function resourcePolicyMutation(value: unknown): ResourceCollaborationPolicyMutation {
   const input = record(value, "resource collaboration policy");
-  return { resource: string(input.resource, "resource"), revision: integer(input.revision, "policy revision") };
+  const revision = integer(input.revision, "policy revision");
+  if (revision < 1) throw new Error("invalid policy revision response");
+  return { resource: string(input.resource, "resource"), revision };
 }
 
 function resourceCollaborator(raw: unknown): ResourceCollaborator {
@@ -185,7 +255,7 @@ function resourceCollaborator(raw: unknown): ResourceCollaborator {
   const access = item.access === undefined ? undefined : record(item.access, "collaborator access");
   const recipient = item.recipient === undefined ? undefined : record(item.recipient, "collaborator recipient");
   return {
-    kind: string(item.kind, "collaborator kind") as "user" | "group" | "invitation", id: string(item.id, "collaborator id"),
+    kind: enumString(item.kind, "collaborator kind", ["user", "group", "service_account", "invitation"] as const), id: string(item.id, "collaborator id"),
     ...(item.link_id === undefined ? {} : { linkId: string(item.link_id, "collaborator link id") }),
     ...(item.resource === undefined ? {} : { resource: string(item.resource, "collaborator resource") }),
     ...(item.display_name === undefined ? {} : { displayName: string(item.display_name, "collaborator display name") }),
@@ -231,11 +301,65 @@ export function resourceSearch(value: unknown): ResourceSearchList {
   };
 }
 
+export function catalogEntry(value: unknown): import("./types.js").CatalogEntry {
+  const item = record(value, "catalog entry");
+  return { id: string(item.id, "entry id"), catalogId: string(item.catalog_id, "catalog id"),
+    semanticKey: string(item.semantic_key, "semantic key"), entryKind: string(item.entry_kind, "entry kind"),
+    revisionId: string(item.revision_id, "revision id"), revisionDigest: string(item.revision_digest, "revision digest"),
+    definition: record(item.definition, "entry definition") };
+}
+
+export function resourceCredential(value: unknown): import("./types.js").ResourceCredentialMetadata {
+  const item = record(value, "resource credential");
+  return { id: string(item.id, "credential id"), resource: string(item.resource, "credential resource"),
+    issuedTo: string(item.issued_to, "credential subject"), status: string(item.status, "credential status"),
+    displayHint: string(item.display_hint, "credential hint"), version: integer(item.version, "credential version"),
+    createdAt: integer(item.created_at, "credential creation"),
+    ...(item.expires_at == null ? {} : { expiresAt: integer(item.expires_at, "credential expiry") }),
+    ...(item.revoke_at == null ? {} : { revokeAt: integer(item.revoke_at, "credential revocation time") }),
+    ...(item.revoked_at == null ? {} : { revokedAt: integer(item.revoked_at, "credential revoked time") }),
+    ...(item.last_used_at == null ? {} : { lastUsedAt: integer(item.last_used_at, "credential last use") }),
+  };
+}
+
+export function issuedResourceCredential(value: unknown): import("./types.js").IssuedResourceCredential {
+  const item = record(value, "issued credential");
+  return { ...resourceCredential(item), credential: string(item.credential, "credential presentation") };
+}
+
+export function resourceCredentials(value: unknown): import("./types.js").ResourceCredentialMetadata[] {
+  return array(record(value, "resource credentials").items, "resource credentials").map(resourceCredential);
+}
+
+export function catalogEntries(value: unknown): import("./types.js").CatalogEntryList {
+  const input = record(value, "catalog entries");
+  return { items: array(input.items, "catalog entries").map(catalogEntry),
+    nextCursor: input.next_cursor === null ? null : string(input.next_cursor, "catalog cursor") };
+}
+
+export function discoverableCatalogs(value: unknown): import("./types.js").DiscoverableCatalogList {
+  const input = record(value, "discoverable catalogs");
+  return { nextCursor: input.next_cursor === null ? null : string(input.next_cursor, "catalog cursor"),
+    items: array(input.items, "catalogs").map(raw => {
+      const item = record(raw, "catalog");
+      if (item.catalog_type !== "api" && item.catalog_type !== "generic") throw new Error("invalid catalog type");
+      if (item.visibility !== "application_private" && item.visibility !== "organization_private") throw new Error("invalid catalog visibility");
+      if (item.discoverable !== true || item.status !== "active") throw new Error("invalid discoverable catalog");
+      return { id: string(item.id, "catalog id"), namespace: string(item.namespace, "catalog namespace"),
+        catalogType: item.catalog_type, visibility: item.visibility, publishedSnapshotId: string(item.published_snapshot_id, "published snapshot"),
+        createdAt: integer(item.created_at, "catalog creation time"),
+        ...(item.organization == null ? {} : { organization: string(item.organization, "catalog organization") }) };
+    }) };
+}
+
+export function publishedCatalogEntries(value: unknown): import("./types.js").PublishedCatalogEntryList {
+  return { ...catalogEntries(value), snapshotId: string(record(value, "published entries").snapshot_id, "published snapshot") };
+}
+
 function accountResourceReference(value: unknown, name: string): import("./types.js").AccountResourceReference {
   const input = record(value, name);
   const id = string(input.id, `${name} id`);
-  if (id.includes(":")) throw new Error(`${name} exposed an internal resource reference`);
-  return { id, type: string(input.type, `${name} type`), name: string(input.name, `${name} name`) };
+  return { id, resource: string(input.resource, `${name} resource`), type: string(input.type, `${name} type`), name: string(input.name, `${name} name`) };
 }
 
 export function accountResources(value: unknown): import("./types.js").AccountResourceList {
@@ -277,13 +401,11 @@ export function accountInvitations(value: unknown): import("./types.js").Account
   return {
     invitations: array(input.invitations, "account invitations").map((raw) => {
       const item = record(raw, "account invitation");
-      const resource = record(item.resource, "account invitation resource");
-      const resourceId = string(resource.id, "account invitation resource id");
-      if (resourceId.includes(":")) throw new Error("account invitation exposed an internal resource reference");
+      const resource = accountResourceReference(item.resource, "account invitation resource");
       if (item.status !== "pending_acceptance" && item.status !== "pending_approval") throw new Error("invalid account invitation status");
       return {
         id: string(item.id, "account invitation id"),
-        resource: { id: resourceId, type: string(resource.type, "account invitation resource type"), name: string(resource.name, "account invitation resource name") },
+        resource,
         relation: string(item.relation, "account invitation relation"), status: item.status,
         expiresAt: integer(item.expires_at, "account invitation expiry"),
         encryptionRequired: boolean(item.encryption_required, "account invitation encryption requirement"),
@@ -518,6 +640,7 @@ export function collaborationResource(value: unknown): CollaborationResource {
 	return {
     id: string(input.id, "collaboration resource id"),
     ...(input.link_id === undefined ? {} : { linkId: string(input.link_id, "collaboration resource link id") }),
+    ...(input.principal_subject === undefined ? {} : { principalSubject: string(input.principal_subject, "collaboration resource principal subject") }),
     resource: string(input.resource, "collaboration resource reference"),
     resourceType: string(input.resource_type, "collaboration resource type"),
     displayName: string(input.display_name, "collaboration resource name"),
@@ -526,9 +649,10 @@ export function collaborationResource(value: unknown): CollaborationResource {
     revision: integer(input.revision, "collaboration resource revision"),
 		lifecycleGeneration: integer(input.lifecycle_generation, "collaboration resource lifecycle generation"),
 		...(binding === undefined ? {} : { catalogBinding: {
+			resource: string(binding.resource, "resource Catalog binding resource"),
 			catalogId: string(binding.catalog_id, "resource Catalog id"), snapshotId: string(binding.snapshot_id, "resource Catalog snapshot id"),
 			snapshotDigest: string(binding.snapshot_digest, "resource Catalog snapshot digest"),
-			entryKinds: array(binding.entry_kinds, "resource Catalog entry kinds").map(value => string(value, "resource Catalog entry kind") as "api.operation"),
+			entryKinds: array(binding.entry_kinds, "resource Catalog entry kinds").map(value => string(value, "resource Catalog entry kind")),
 			resourceRevision: integer(binding.resource_revision, "resource Catalog revision"),
 		} }),
     encryption: {
@@ -622,6 +746,14 @@ export function resourcePayloadRewrapResult(value: unknown): import("./types.js"
     rewrapperKeyId: string(input.rewrapper_key_id, "resource payload rewrapper key"), resourceRevision: integer(input.resource_revision, "resource revision"),
     lifecycleGeneration: integer(input.lifecycle_generation, "resource lifecycle generation"),
   };
+}
+
+export function portal(value: unknown): import("./types.js").PortalSession {
+  const raw = record(value, "portal session");
+  const url = string(raw.url, "portal URL");
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) throw new Error("invalid portal URL");
+  return { id: string(raw.id, "portal ID"), url };
 }
 
 export function checkout(value: unknown): CheckoutSession {

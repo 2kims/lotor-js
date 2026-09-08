@@ -13,6 +13,35 @@ import {
 
 interface RecordedRequest { url: string; init: RequestInit }
 
+test("downloads payload bytes with integrity checks and isolated storage transport", async () => {
+  const bytes = new TextEncoder().encode("payload");
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
+  const lease = { resource: "vault:one", slot: "content", payloadVersion: 1, representation: "raw" as const, objectDigest: digest, objectSize: bytes.length, downloadUrl: "https://objects.test/file", downloadMethod: "GET" as const, expiresAt: 9999999999, audience: "alice", resourceRevision: 1, lifecycleGeneration: 1 };
+  let calls = 0;
+  let body: Uint8Array<ArrayBuffer> = bytes;
+  const sdk = new LotorBrowserClient({ baseUrl: "https://api.lotor.test", clientId: "app", publishableKey: "pk", fetch: async (url, init = {}) => {
+    calls++;
+    assert.equal(String(url), lease.downloadUrl);
+    assert.equal(init.credentials, "omit");
+    assert.equal(init.redirect, "error");
+    assert.deepEqual([...new Headers(init.headers).entries()], []);
+    return new Response(body);
+  } });
+  assert.deepEqual(await sdk.downloadResourcePayload(lease), bytes);
+  await assert.rejects(sdk.downloadResourcePayload({ ...lease, objectDigest: "0".repeat(64) }), /digest/);
+  body = new Uint8Array(bytes.length + 1);
+  await assert.rejects(sdk.downloadResourcePayload(lease), /size/);
+  body = new Uint8Array(0);
+  await assert.rejects(sdk.downloadResourcePayload(lease), /size/);
+  const beforeInvalid = calls;
+  await assert.rejects(sdk.downloadResourcePayload({ ...lease, downloadUrl: "http://objects.test/file" }));
+  await assert.rejects(sdk.downloadResourcePayload({ ...lease, objectSize: 64 * 1024 * 1024 + 1 }));
+  await assert.rejects(sdk.downloadResourcePayload(lease, { signal: AbortSignal.abort() }));
+  const intent = { resource: "vault:one", slot: "content", payloadVersion: 1, expectedPayloadVersion: 0, uploadUrl: "https://objects.test/upload", uploadMethod: "PUT" as const, expiresAt: 99, requiredHeaders: {} };
+  for (const name of ["Authorization", "Cookie", "Lotor-Payload-Token", "X-Lotor-Secret-Key"]) await assert.rejects(sdk.uploadResourcePayloadObject({ ...intent, requiredHeaders: { [name]: "private" } }, bytes));
+  assert.equal(calls, beforeInvalid);
+});
+
 function response(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(body === undefined ? undefined : JSON.stringify(body), {
     status,
@@ -43,11 +72,12 @@ function fixtureFetch(requests: RecordedRequest[]): BrowserFetch {
     if (url.endsWith("/session")) return response({ authenticated: true, subject: "user_1", email: "founder@example.test" });
     if (url.endsWith("/organizations") && init.method === "POST") return response({ id: "org_2", name: "Acme Operations", current_role: "owner", member_count: 1, pending_invites: 0 }, 201);
     if (url.endsWith("/organizations")) return response([{ id: "org_1", name: "Personal Workspace", current_role: "owner", member_count: 1, pending_invites: 0 }]);
+    if (url.endsWith("/me/resources?parent=project%3Aexample&type=vault")) return response({ resources: [], next_cursor: null });
     if (url.endsWith("/me/resources?type=organization&type=vault&access_state=active&limit=25")) return response({ resources: [
-      { id: "res_org", type: "organization", name: "Personal Workspace", relations: ["member"], access_state: "active", access: { direct: false, paths: [{ type: "group", relation: "member", via: [{ id: "res_group", type: "group", name: "Engineering", subject_relation: "member" }] }] } },
-      { id: "res_vault", type: "vault", name: "Production", parent: { id: "res_org", type: "organization", name: "Personal Workspace" }, relations: ["owner"], access_state: "active", access: { direct: true, paths: [{ type: "direct", relation: "owner", via: [] }] } },
+      { id: "res_org", resource: "organization:res_org", type: "organization", name: "Personal Workspace", relations: ["member"], access_state: "active", access: { direct: false, paths: [{ type: "group", relation: "member", via: [{ id: "res_group", resource: "group:res_group", type: "group", name: "Engineering", subject_relation: "member" }] }] } },
+      { id: "res_vault", resource: "vault:res_vault", type: "vault", name: "Production", parent: { id: "res_org", resource: "organization:res_org", type: "organization", name: "Personal Workspace" }, relations: ["owner"], access_state: "active", access: { direct: true, paths: [{ type: "direct", relation: "owner", via: [] }] } },
     ], next_cursor: "next_resources" });
-    if (url.endsWith("/me/invitations?limit=25")) return response({ invitations: [{ id: "cinv_1", resource: { id: "res_1", type: "vault", name: "Production" }, relation: "member", status: "pending_acceptance", expires_at: 123, encryption_required: true }], next_cursor: "next_1" });
+    if (url.endsWith("/me/invitations?limit=25")) return response({ invitations: [{ id: "cinv_1", resource: { id: "res_1", resource: "vault:res_1", type: "vault", name: "Production" }, relation: "member", status: "pending_acceptance", expires_at: 123, encryption_required: true }], next_cursor: "next_1" });
     if (url.endsWith("/me/invitations/cinv_1/accept")) return response({ id: "cinv_1", status: "active" });
     if (url.endsWith("/me/invitations/cinv_2/decline")) return response({ id: "cinv_2", status: "declined" });
     if (url.endsWith("/billing/checkout-sessions")) return response({ id: "cs_1", presentation: "custom", client_secret: "cs_test_secret", publishable_key: "pk_test_public" }, 201);
@@ -410,6 +440,7 @@ test("exposes browser E2EE policy session and resumable action signatures", asyn
   const tokenStore = new MemoryTokenStore(); tokenStore.setToken("token");
   const keyRequirement = {
     manifest_item_id: "grant_browser", grant_id: "grant_browser", resource: "vault:one", relation: "viewer",
+    associated_data: "Y29udGV4dA",
     key_resource: "vault:one", key_version: "1", recipient_subject: "user:bob", recipient_key_id: "key_bob",
     encryption_algorithm: "X25519", public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   };
@@ -431,6 +462,7 @@ test("exposes browser E2EE policy session and resumable action signatures", asyn
   assert.equal((await sdk.resourceSessionEnvelope("vault:one", "A".repeat(43), "client-nonce-123456")).associatedData, "aad");
   const actions = await sdk.encryptionActions();
   assert.equal(actions[0]?.keyRequirements[0]?.resource, "vault:one");
+  assert.deepEqual(actions[0]?.keyRequirements[0]?.associatedData, new TextEncoder().encode("context"));
   const envelope = { manifestItemId: "grant_browser", encryptionSuite: "X25519-HKDF-SHA256-AES-256-GCM" as const,
     ciphertext: "ciphertext", aadHash: "aad", issuer: "user:owner", issuerKeyId: "key_owner", signature: "signature" };
   assert.equal((await sdk.completeEncryptionAction("rkj_one", "a".repeat(64), [envelope])).status, "projecting");
@@ -448,6 +480,7 @@ test("completes a browser encryption action from an in-memory resource key", asy
     id: "rkj_create", kind: "resource_key_create" as const, resource: "project:one", status: "awaiting_browser" as const,
     revision: "a".repeat(64), keyRequirements: [{
       manifestItemId: "owner_grant", grantId: "owner_grant", resource: "project:one", relation: "owner",
+      associatedData: new TextEncoder().encode(["lotor-resource-envelope-v1", "tenant", "app", "env", "project:one", "1", "user:owner", enrolled.keys.keyId, "1", "2", "3", "4", "5"].join("\0")),
       keyResource: "project:one", keyVersion: "1", recipientSubject: "user:owner", recipientKeyId: enrolled.keys.keyId,
       encryptionAlgorithm: "X25519" as const, publicKey: new Uint8Array(Buffer.from(enrolled.request.encryption_public_key, "base64url")),
     }],
@@ -518,11 +551,41 @@ test("searches collaborators and manageable resources with group path context", 
   });
 });
 
-test("lists the authenticated account invitation inbox without internal resource references", async () => {
+test("resource collaboration discovery preserves service-account graph principals", async () => {
+  const tokenStore = new MemoryTokenStore(); tokenStore.setToken("token");
+  const requests: RecordedRequest[] = [];
+  const sdk = new LotorBrowserClient({
+    baseUrl: "https://api.lotor.test", clientId: "signalbox_web", publishableKey: "lp_sbx_test", tokenStore,
+    fetch: async (input, init = {}) => {
+      requests.push({ url: String(input), init });
+      if (String(input).endsWith("/link-candidates/search")) return response({ candidates: [{ kind: "service_account", resource: "service_account:deploy", display_name: "Deploy", link_state: "available", selectable: true }], next_cursor: null });
+      return response({ resource: "vault:one", collaborators: [{ kind: "service_account", id: "service_account:deploy", resource: "service_account:deploy", relations: ["operator"], status: "active" }], next_cursor: null });
+    },
+  });
+  const candidates = await sdk.searchResourceLinkCandidates("vault:one", { query: "dep", relation: "operator", kinds: ["service_account"] });
+  assert.equal(candidates.candidates[0]?.kind, "service_account");
+  assert.equal((await sdk.resourceCollaborators("vault:one", { kind: "service_account" })).collaborators[0]?.kind, "service_account");
+  await assert.rejects(sdk.searchResourceLinkCandidates("vault:one", { query: "d", relation: "operator" }));
+  assert.equal(requests.length, 2);
+});
+
+test("resource guest policy keeps public camelCase types and canonical wire fields", async () => {
+  const tokenStore = new MemoryTokenStore(); tokenStore.setToken("token");
+  const requests: RecordedRequest[] = [];
+  const sdk = new LotorBrowserClient({ baseUrl: "https://api.lotor.test", clientId: "signalbox_web", publishableKey: "lp_sbx_test", tokenStore,
+    fetch: async (input, init = {}) => { requests.push({ url: String(input), init }); return response({ resource: "vault:one", revision: 2 }); } });
+  assert.equal((await sdk.setResourceCollaborationPolicy("vault:one", { guests: { allowed: true, allowedDomains: ["example.com"] } })).revision, 2);
+  assert.deepEqual(JSON.parse(String(requests[0]?.init.body)), { guests: { allowed: true, allowed_domains: ["example.com"] } });
+  await assert.rejects(sdk.setResourceCollaborationPolicy("vault:one", { guests: {} }));
+  await assert.rejects(sdk.setResourceCollaborationPolicy("vault:one", { guests: { allowedDomains: [] } }));
+  assert.equal(requests.length, 1);
+});
+
+test("lists the authenticated invitation inbox with canonical resource references", async () => {
   const tokenStore = new MemoryTokenStore(); tokenStore.setToken("token");
   const requests: RecordedRequest[] = [];
   const listed = await client(requests, tokenStore).accountInvitations({ limit: 25 });
-  assert.deepEqual(listed, { invitations: [{ id: "cinv_1", resource: { id: "res_1", type: "vault", name: "Production" }, relation: "member", status: "pending_acceptance", expiresAt: 123, encryptionRequired: true }], nextCursor: "next_1" });
+  assert.deepEqual(listed, { invitations: [{ id: "cinv_1", resource: { id: "res_1", resource: "vault:res_1", type: "vault", name: "Production" }, relation: "member", status: "pending_acceptance", expiresAt: 123, encryptionRequired: true }], nextCursor: "next_1" });
   assert.equal(requests[0]?.url, "https://api.lotor.test/v1/public/applications/signalbox_web/me/invitations?limit=25");
   assert.equal(new Headers(requests[0]?.init.headers).get("Authorization"), "Bearer token");
   assert.deepEqual(await client(requests, tokenStore).acceptAccountInvitation("cinv_1"), { id: "cinv_1", status: "active" });
@@ -537,19 +600,85 @@ test("lists and generically groups the authenticated account resource directory"
   const requests: RecordedRequest[] = [];
   const listed = await client(requests, tokenStore).accountResources({ types: ["organization", "vault"], accessStates: ["active"], limit: 25 });
   assert.equal(listed.resources[0]?.access.paths[0]?.via[0]?.id, "res_group");
+  assert.equal(listed.resources[0]?.access.paths[0]?.via[0]?.resource, "group:res_group");
+  assert.equal(listed.resources[1]?.resource, "vault:res_vault");
+  assert.equal(listed.resources[1]?.parent?.resource, "organization:res_org");
   assert.equal(listed.resources[1]?.parent?.id, "res_org");
   assert.deepEqual(groupResourcesByType(listed.resources).map(group => [group.type, group.resources.length]), [["organization", 1], ["vault", 1]]);
   assert.equal(requests[0]?.url, "https://api.lotor.test/v1/public/applications/signalbox_web/me/resources?type=organization&type=vault&access_state=active&limit=25");
   await assert.rejects(client([], tokenStore).accountResources({ limit: 101 }), /limit/);
+  await client(requests, tokenStore).accountResources({ parent: "project:example", types: ["vault"] });
+  assert.equal(requests[1]?.url, "https://api.lotor.test/v1/public/applications/signalbox_web/me/resources?parent=project%3Aexample&type=vault");
+  await assert.rejects(client([], tokenStore).accountResources({ parent: "" }), /parent/);
 });
 
-test("rejects an account invitation response that leaks an internal typed resource reference", async () => {
+test("rejects an account invitation response missing its canonical resource reference", async () => {
   const tokenStore = new MemoryTokenStore(); tokenStore.setToken("token");
   const sdk = new LotorBrowserClient({
     baseUrl: "https://api.lotor.test", clientId: "signalbox_web", publishableKey: "lp_sbx_test", tokenStore,
     fetch: async () => response({ invitations: [{ id: "cinv_1", resource: { id: "organization:internal-secret", type: "organization", name: "Personal Workspace" }, relation: "member", status: "pending_acceptance", expires_at: 123, encryption_required: false }], next_cursor: null }),
   });
-  await assert.rejects(sdk.accountInvitations(), /internal resource reference/);
+  await assert.rejects(sdk.accountInvitations(), /invalid account invitation resource resource response/);
+});
+
+test("reads resource-bound catalog entries with user authority and no application secret", async () => {
+  const tokenStore = new MemoryTokenStore(); tokenStore.setToken("user-session");
+  const requests: RecordedRequest[] = [];
+  const entry = { id: "entry_1", catalog_id: "catalog_1", semantic_key: "send", entry_kind: "api.operation", revision_id: "revision_1", revision_digest: "a".repeat(64), definition: { method: "POST", path: "/messages" } };
+  const sdk = new LotorBrowserClient({
+    baseUrl: "https://api.lotor.test", clientId: "app", publishableKey: "lp_sbx_test", tokenStore,
+    fetch: async (input, init = {}) => {
+      requests.push({ url: String(input), init });
+      return response(String(input).includes("/entries/entry_1?") ? entry : { items: [entry], next_cursor: "next" });
+    },
+  });
+  const page = await sdk.resourceCatalogEntries("vault:one", "catalog_1", { limit: 1 });
+  assert.equal(page.items[0]?.revisionId, "revision_1");
+  assert.equal(page.nextCursor, "next");
+  assert.equal((await sdk.resourceCatalogEntry("vault:one", "catalog_1", "entry_1")).semanticKey, "send");
+  assert.equal(requests[0]?.url, "https://api.lotor.test/v1/public/applications/app/catalogs/catalog_1/entries?resource=vault%3Aone&limit=1");
+  assert.equal(requests[1]?.url, "https://api.lotor.test/v1/public/applications/app/catalogs/catalog_1/entries/entry_1?resource=vault%3Aone");
+  assert.equal(new Headers(requests[0]?.init.headers).get("Authorization"), "Bearer user-session");
+  assert.equal(new Headers(requests[0]?.init.headers).get("X-Lotor-Secret-Key"), null);
+  await assert.rejects(sdk.resourceCatalogEntries("", "catalog_1"), /resource/);
+  await assert.rejects(sdk.resourceCatalogEntries("vault:one", "catalog_1", { limit: 101 }), /limit/);
+});
+
+for (const mode of ["direct", "same-origin"] as const) test(`manages resource credentials with ${mode} user transport`, async () => {
+  const requests: RecordedRequest[] = [];
+  const tokenStore = new MemoryTokenStore(); tokenStore.setToken("session-token");
+  const metadata = { id: "credential_1", resource: "api_key:one", issued_to: "user:alice", status: "active", version: 1, display_hint: "key_hint", created_at: 100, expires_at: null };
+  const fetcher: typeof fetch = async (input, init = {}) => {
+    requests.push({ url: String(input), init });
+    if (init.method === "POST") return response({ ...metadata, credential: "one-time-presentation" }, 201);
+    if (init.method === "DELETE") return response({ ...metadata, status: "revoked" });
+    return response({ items: [metadata] });
+  };
+  const sdk = new LotorBrowserClient(mode === "direct"
+    ? { baseUrl: "https://api.lotor.test", clientId: "app", publishableKey: "lp_sbx_test", tokenStore, fetch: fetcher }
+    : { mode: "same-origin", clientId: "app", publishableKey: "lp_sbx_test", csrfToken: () => "csrf", fetch: fetcher });
+  const issued = await sdk.issueResourceCredential("api_key:one", { issuedTo: "user:alice", expiresAt: 1000 }, "issue-1");
+  assert.equal(issued.credential, "one-time-presentation");
+  assert.equal(tokenStore.getToken(), "session-token");
+  assert.deepEqual(JSON.parse(String(requests[0]?.init.body)), { issued_to: "user:alice", expires_at: 1000 });
+  const listed = await sdk.resourceCredentials("api_key:one");
+  assert.equal("credential" in listed[0]!, false);
+  await sdk.rotateResourceCredential("api_key:one", "credential_1", { revokePreviousAt: 2000 }, "rotate-1");
+  assert.deepEqual(JSON.parse(String(requests[2]?.init.body)), { revoke_previous_at: 2000 });
+  assert.equal((await sdk.revokeResourceCredential("api_key:one", "credential_1", "revoke-1")).status, "revoked");
+  assert.equal(requests[3]?.init.method, "DELETE");
+  for (const [index, key] of [[0, "issue-1"], [2, "rotate-1"], [3, "revoke-1"]] as const) {
+    assert.equal(new Headers(requests[index]?.init.headers).get("Idempotency-Key"), key);
+  }
+  for (const { init } of requests) {
+    assert.equal(new Headers(init.headers).get("X-Lotor-Secret-Key"), null);
+    assert.equal(new Headers(init.headers).get("Authorization"), mode === "direct" ? "Bearer session-token" : null);
+    if (mode === "same-origin") assert.equal(init.credentials, "same-origin");
+  }
+  await assert.rejects(sdk.issueResourceCredential("api_key:one", { issuedTo: "user:alice", expiresAt: NaN }, "invalid"));
+  await assert.rejects(sdk.rotateResourceCredential("api_key:one", "credential_1", { revokePreviousAt: Infinity }, "invalid"));
+  await assert.rejects(sdk.revokeResourceCredential("api_key:one", "credential_1", ""));
+  assert.equal(requests.length, 4);
 });
 
 test("requires a secure absolute origin and gates loopback HTTP explicitly", () => {

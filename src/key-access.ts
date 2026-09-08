@@ -316,6 +316,7 @@ export interface CreateResourceEnvelopeInput {
   issuerSigningPrivateKey: CryptoKey;
   member: ResourceProvisioningMember;
   resourceKey: Uint8Array;
+  associatedData: Uint8Array;
 }
 
 export interface ResourceEnvelopeRequest {
@@ -333,33 +334,37 @@ export interface ResourceEnvelopeRequest {
   signature: string;
 }
 
-function resourceAAD(
-  clientId: string,
-  member: Omit<ResourceProvisioningMember, "recipientEncryptionPublicKey">,
-): Uint8Array {
-  return proofMessage([
-    encoder.encode("lotor-resource-key-aad-v1"), encoder.encode(clientId), encoder.encode(member.scope),
-    encoder.encode(member.grantId), encoder.encode(member.resource), encoder.encode(member.keyResource),
-    encoder.encode(member.subject), encoder.encode(member.recipientKeyId), encoder.encode(member.relation),
-  ], member.keyVersion);
+function validateResourceAAD(aad: Uint8Array, member: Pick<ResourceProvisioningMember, "keyResource" | "keyVersion" | "subject" | "recipientKeyId">): void {
+  const fields = new TextDecoder("utf-8", { fatal: true }).decode(aad).split("\0");
+  if (fields.length !== 13 || fields[0] !== "lotor-resource-envelope-v1" ||
+      fields.slice(1, 4).some((field) => field.length === 0) ||
+      fields[4] !== member.keyResource || fields[5] !== String(member.keyVersion) ||
+      fields[6] !== member.subject || fields[7] !== member.recipientKeyId ||
+      fields.slice(8).some((field) => !/^(0|[1-9][0-9]*)$/.test(field))) {
+    throw new Error("resource envelope context mismatch");
+  }
 }
 
 export async function createResourceEnvelope(input: CreateResourceEnvelopeInput): Promise<ResourceEnvelopeRequest> {
   const crypto = webCrypto();
   if (input.resourceKey.length !== 32) throw new Error("resourceKey must contain 32 bytes");
   if (input.member.recipientEncryptionPublicKey.length !== 32) throw new Error("recipient public key must contain 32 bytes");
+  validateResourceAAD(input.associatedData, input.member);
   const ephemeral = await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]) as CryptoKeyPair;
   const recipient = await crypto.subtle.importKey("raw", buffer(input.member.recipientEncryptionPublicKey), { name: "X25519" }, false, []);
   const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "X25519", public: recipient }, ephemeral.privateKey, 256));
-  const aad = resourceAAD(input.clientId, input.member);
+  const aad = input.associatedData;
   const aadHash = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(aad)));
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   try {
     const sharedKey = await crypto.subtle.importKey("raw", buffer(shared), "HKDF", false, ["deriveKey"]);
-    const wrappingKey = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: buffer(aadHash), info: buffer(encoder.encode("lotor-resource-wrap-v1")) }, sharedKey, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+    const wrappingKey = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(), info: buffer(aad) }, sharedKey, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
     const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce, additionalData: buffer(aad) }, wrappingKey, buffer(input.resourceKey)));
     const ephemeralPublic = new Uint8Array(await crypto.subtle.exportKey("raw", ephemeral.publicKey));
-    const ciphertext = concat([Uint8Array.of(1), ephemeralPublic, nonce, encrypted]);
+    const ciphertext = encoder.encode(JSON.stringify({ version: 1, actor: input.issuer,
+      ephemeral_public_key: base64url(ephemeralPublic), nonce: base64url(nonce), ciphertext: base64url(encrypted),
+      aad: base64url(aad), aad_hash: Array.from(aadHash, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    }));
     const ciphertextHash = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(ciphertext)));
     const signatureMessage = proofMessage([
       encoder.encode("lotor-resource-envelope-v1"), encoder.encode(input.clientId), encoder.encode(input.issuer),
@@ -471,13 +476,28 @@ export async function unwrapResourceSessionEnvelope(
 
 export async function unwrapResourceEnvelope(clientId: string, envelope: EncryptedResourceEnvelope, privateKey: CryptoKey): Promise<Uint8Array> {
   const crypto = webCrypto();
-  if (envelope.ciphertext.length < 1 + 32 + 12 + 16 || envelope.ciphertext[0] !== 1) throw new Error("invalid resource envelope format");
-  if (envelope.issuerSigningAlgorithm !== "Ed25519" || envelope.issuerSigningPublicKey.length !== 32 || envelope.signature.length !== 64) {
+  if (envelope.ciphertext.length > 16384 || envelope.encryptionSuite !== "X25519-HKDF-SHA256-AES-256-GCM") throw new Error("invalid resource envelope format");
+  const wire: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(envelope.ciphertext));
+  if (wire === null || typeof wire !== "object" || Array.isArray(wire)) throw new Error("invalid resource envelope format");
+  const fields = wire as Record<string, unknown>;
+  if (fields.version !== 1 || typeof fields.actor !== "string" || fields.actor.length === 0 ||
+      Object.keys(fields).sort().join(",") !== "aad,aad_hash,actor,ciphertext,ephemeral_public_key,nonce,version") throw new Error("invalid resource envelope format");
+  const wireBytes = (name: string): Uint8Array => {
+    const value = fields[name];
+    if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("invalid resource envelope format");
+    const decoded = decodeBase64url(value);
+    if (base64url(decoded) !== value) throw new Error("invalid resource envelope format");
+    return decoded;
+  };
+  const ephemeralBytes = wireBytes("ephemeral_public_key"), nonce = wireBytes("nonce"), encrypted = wireBytes("ciphertext"), aad = wireBytes("aad");
+  if (ephemeralBytes.length !== 32 || nonce.length !== 12 || encrypted.length !== 48) throw new Error("invalid resource envelope format");
+  validateResourceAAD(aad, envelope);
+  if (envelope.issuerKeyStatus !== "active" || envelope.issuerSigningAlgorithm !== "Ed25519" || envelope.issuerSigningPublicKey.length !== 32 || envelope.signature.length !== 64) {
     throw new Error("invalid resource envelope issuer key");
   }
   const ciphertextHash = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(envelope.ciphertext)));
   const signatureMessage = proofMessage([
-    encoder.encode("lotor-resource-envelope-v1"), encoder.encode(clientId), encoder.encode(envelope.issuer),
+    encoder.encode("lotor-resource-envelope-v1"), encoder.encode(clientId), encoder.encode(fields.actor),
     encoder.encode(envelope.scope), encoder.encode(envelope.grantId), encoder.encode(envelope.keyResource),
     encoder.encode(envelope.subject), encoder.encode(envelope.recipientKeyId),
     encoder.encode(envelope.encryptionSuite), ciphertextHash, envelope.aadHash, encoder.encode(envelope.issuerKeyId),
@@ -486,17 +506,14 @@ export async function unwrapResourceEnvelope(clientId: string, envelope: Encrypt
   if (!await crypto.subtle.verify("Ed25519", issuerSigningPublicKey, buffer(envelope.signature), buffer(signatureMessage))) {
     throw new Error("invalid resource envelope signature");
   }
-  const ephemeralPublic = await crypto.subtle.importKey("raw", buffer(envelope.ciphertext.slice(1, 33)), { name: "X25519" }, false, []);
-  const nonce = envelope.ciphertext.slice(33, 45);
-  const encrypted = envelope.ciphertext.slice(45);
-  const aad = resourceAAD(clientId, envelope);
+  const ephemeralPublic = await crypto.subtle.importKey("raw", buffer(ephemeralBytes), { name: "X25519" }, false, []);
   const aadHash = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(aad)));
-  if (aadHash.length !== envelope.aadHash.length || !aadHash.every((byte, index) => byte === envelope.aadHash[index])) throw new Error("resource envelope context mismatch");
+  if (fields.aad_hash !== Array.from(aadHash, (byte) => byte.toString(16).padStart(2, "0")).join("") || aadHash.length !== envelope.aadHash.length || !aadHash.every((byte, index) => byte === envelope.aadHash[index])) throw new Error("resource envelope context mismatch");
   const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "X25519", public: ephemeralPublic }, privateKey, 256));
   try {
     const sharedKey = await crypto.subtle.importKey("raw", buffer(shared), "HKDF", false, ["deriveKey"]);
-    const wrappingKey = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: buffer(aadHash), info: buffer(encoder.encode("lotor-resource-wrap-v1")) }, sharedKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-    return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce, additionalData: buffer(aad) }, wrappingKey, buffer(encrypted)));
+    const wrappingKey = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(), info: buffer(aad) }, sharedKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: buffer(nonce), additionalData: buffer(aad) }, wrappingKey, buffer(encrypted)));
   } finally {
     shared.fill(0);
   }
