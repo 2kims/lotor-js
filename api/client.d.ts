@@ -1,5 +1,6 @@
 import { type BrowserFetch, type CSRFTokenProvider } from "./transport.js";
 import { type PageOptions, type PollOptions } from "./async-helpers.js";
+import { type ProviderPlainRequest, type ResourceExecutionAuthorization, type ResourceExecutionPreflight } from "./resource-execution.js";
 import { type ApplicationSession, type AuthenticatedSession, type CheckoutSession, type CreateCheckoutSessionInput, type OrganizationSummary, type PasswordlessChallenge, type PublicApplicationConfiguration, type PublicApplicationPricing, type TokenStore, type EnrollSubjectKeyInput, type SubjectKeyEnrollment, type SubjectKeyMutation, type SubjectKeyRecord, type ResourceLinkChange, type ResourceLinkCandidateSearchInput, type ResourceLinkCandidateSearchResult, type ResourceLinkPreflight, type ResourceLinkSendInput, type ResourceLinkSendResult, type ResourceLinkResult, type UnlinkResult, type ResourceCollaborationPolicyOverride, type ResourceCollaborationPolicyMutation, type ResourceCollaboratorList, type ResourceSearchInput, type ResourceSearchList, type AccountInvitationList, type AccountInvitationMutation, type AccountResourceList, type ResourceInvitationMutation, type ClaimSubjectKeyInput, type ClaimedSubjectKey, type ResourceLinkEnvelopeSubmission, type OrganizationE2EEPolicy, type ResourceSessionEnvelope, type EncryptionAction, type EncryptionActionMutation, type ResourcePayloadAccessLease, type ResourcePayloadManifest, type ResourcePayloadMutation, type ResourcePayloadUploadInput, type ResourcePayloadUploadIntent, type DurableOperation, type ResourceLifecycleFence, type ResourceMoveInput, type ResourceDeleteInput } from "./types.js";
 interface LotorBrowserCommonOptions {
     clientId: string;
@@ -37,6 +38,7 @@ export declare class LotorBrowserClient {
     private readonly applicationPath;
     private readonly sameOrigin;
     private readonly fetcher;
+    private readonly executionTokens;
     constructor(options: LotorBrowserOptions);
     configuration(): Promise<PublicApplicationConfiguration>;
     pricing(): Promise<PublicApplicationPricing>;
@@ -71,6 +73,9 @@ export declare class LotorBrowserClient {
     rewrapResourcePayload(resource: string, slot: string, input: import("./types.js").ResourcePayloadRewrapInput): Promise<import("./types.js").ResourcePayloadRewrapResult>;
     deleteResourcePayload(resource: string, slot: string, idempotencyKey: string): Promise<ResourcePayloadMutation>;
     private resourcePayloadPath;
+    preflightResourceExecution(resource: string, input: ProviderPlainRequest): Promise<ResourceExecutionPreflight>;
+    commitResourceExecution(resource: string, preflight: ResourceExecutionPreflight, protectedRequest?: string): Promise<ResourceExecutionAuthorization>;
+    private resourceExecutionPath;
     enrollSubjectKey(input: EnrollSubjectKeyInput): Promise<SubjectKeyEnrollment>;
     subjectKeys(): Promise<SubjectKeyRecord[]>;
     revokeSubjectKey(keyId: string): Promise<SubjectKeyMutation>;

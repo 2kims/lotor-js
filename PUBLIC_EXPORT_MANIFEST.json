@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "target": "browser",
-  "source_commit": "f012a46ae3f15b7a9a57b31bd94c3e392b3aa16e",
-  "version": "0.2.0-rc.1",
+  "source_commit": "31c99bc5c70617b5995abcde752e4fe1d4674f51",
+  "version": "0.2.1-rc.1",
   "files": [
     {
       "path": ".github/CODEOWNERS",
@@ -22,7 +22,7 @@
     },
     {
       "path": ".release-please-manifest.json",
-      "sha256": "06029287f5d9b3ec1057fc028588e24689c6af50c8a80ef62770f3e8cb7ca9af"
+      "sha256": "3ac51fef89d5a2bf43e12f76ff9bcfd9683791ca0da1cbf8a5e95e9fe0ee738f"
     },
     {
       "path": "api/async-helpers.d.ts",
@@ -30,15 +30,19 @@
     },
     {
       "path": "api/client.d.ts",
-      "sha256": "adb4f31e664d0829ec19082f77833c72a537031dc21f8a33c40ed357e9510888"
+      "sha256": "106251cf4cbeefbac1c1f048c40e09fd7539520a64df3be8c1bed6e46942675b"
     },
     {
       "path": "api/index.d.ts",
-      "sha256": "3dd409f84e61e8921d283d55502aa7dc9dc1b65c6d5655e1b1f46e6077a3ab36"
+      "sha256": "b5313bbb0fadc5b033b3de937c1539eb3358d2cdb106c879edbd4db20acd84d4"
     },
     {
       "path": "api/key-access.d.ts",
       "sha256": "7350091f8e1589fe6ab7ec93222572f904a9f9884188a7f35f1cfb5de3ceb252"
+    },
+    {
+      "path": "api/resource-execution.d.ts",
+      "sha256": "79e914c53a860b4032c1c4f2c094655bf2356f09fc64f32802fbcccf7e09638e"
     },
     {
       "path": "api/transport.d.ts",
@@ -50,7 +54,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "30f488cf05a625fa48c3baa88497730670ff6ccc33709f6c6ec8c3b2c076bdee"
+      "sha256": "38508fd4241bcf7f648e259b2e9bd063f6c7da77cf7b893e560b57455d72ba85"
     },
     {
       "path": "LICENSE",
@@ -62,7 +66,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "b5bc20dbc0867759b2dc974ada4c0fe5f2bdb7f2421dd6eaf4683c0e1bb17856"
+      "sha256": "d9ef1449f0e60eae2d7bae8dd6ca5f40e5a9c7f6805b754aca53f95110e1ee3f"
     },
     {
       "path": "pnpm-lock.yaml",
@@ -82,11 +86,11 @@
     },
     {
       "path": "scripts/check-api.mjs",
-      "sha256": "32e7ae199d871afa8f0ee69a03be15afcc5bcfc84b74298c6162f3c7adf6e1b2"
+      "sha256": "1f935cdf7afeb653ac85dc77802526f7c44b58ea2b3a114944eecc20d125c6da"
     },
     {
       "path": "scripts/check-package.mjs",
-      "sha256": "54cae31da61bf2c9134807736f8b6475f18c6983f2a5c94967ef3206bd0efa69"
+      "sha256": "0f808eb9608930e2bc46ee5a435678a91ce9352e5a20430ece5e2451056acf5a"
     },
     {
       "path": "scripts/compare-semver.mjs",
@@ -110,19 +114,23 @@
     },
     {
       "path": "src/client.ts",
-      "sha256": "cdb4c0af21202dd021146a81ee142cacd2b074d748fe4dad6fd577e10de47dbf"
+      "sha256": "47a46e5af6c65555014e08220aa9627a6f2ec6ca8c1b3a06dbcdc0e9e4909481"
     },
     {
       "path": "src/decode.ts",
-      "sha256": "1079f1866440008147838cda6dd3721179a9b28673ae4381c4167f12bebb606e"
+      "sha256": "0c4ab2114689cd163c72e1d055bf61a8ed180229e70b1015950a3ce1a87d0994"
     },
     {
       "path": "src/index.ts",
-      "sha256": "ee2cafb17adce003ed90c4817baf72a62e6d0a85522532c4d6ae6bddfd3736a3"
+      "sha256": "a4915456d6cc5b07b170531de5f3a8b2f37dcfa263ba8ed002554ccfda232585"
     },
     {
       "path": "src/key-access.ts",
       "sha256": "67f3f91de786c2397e92bc6fb2d8070d328bcddff42047645f77a71755365358"
+    },
+    {
+      "path": "src/resource-execution.ts",
+      "sha256": "ca067e80de563096a93991279326c75d0029b168530424c67ec17bd43a17f997"
     },
     {
       "path": "src/resource-payload.ts",
@@ -150,7 +158,7 @@
     },
     {
       "path": "tests/client.test.ts",
-      "sha256": "5cecb7812cd957b1447a59dfbbb118ba47f8ac916a8227fc0fe89659ea1d7598"
+      "sha256": "375082510d8696a10c6786fc71b94ebfcb2799114330b1de0f5f46bae6afbfb8"
     },
     {
       "path": "tests/encryption-action-context.test.ts",
@@ -171,6 +179,10 @@
     {
       "path": "tests/organization-relay.test.ts",
       "sha256": "773a5146fc0ea7cc5f21b6ffb00b87420aea5ded44a6304c0f67029f719e22a4"
+    },
+    {
+      "path": "tests/resource-execution.test.ts",
+      "sha256": "b83344552df0f2c0d8cfc144378a57382d4382a2c53bf1049c954a7d48f8d675"
     },
     {
       "path": "tests/resource-payload.test.ts",

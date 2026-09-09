@@ -95,6 +95,8 @@ function fixtureFetch(requests: RecordedRequest[]): BrowserFetch {
     if (url.endsWith("/resources/vault%3Aone/payloads/content/uploads")) return response({ resource: "vault:one", slot: "content", payload_version: 3, expected_payload_version: 0, upload_url: "https://objects.test/upload", upload_method: "PUT", required_headers: { "x-amz-meta-sha256": "abc" }, expires_at: 123 }, 201, { "Lotor-Payload-Token": "payload-token" });
     if (url.endsWith("/resources/vault%3Aone/payloads/content/commits")) return response({ resource: "vault:one", slot: "content", schema_id: "av.vault.v1", payload_version: 1, representation: "encrypted-envelope-v1", object_digest: "a".repeat(64), object_size: 64, encryption_suite: "AES-256-GCM", key_binding_ref: "vault:one", key_version: 1, wrapped_payload_key: "wrapped", aad_hash: "aad", encryptor_subject: "user:owner", encryptor_key_id: "key_1", resource_revision: 1, lifecycle_generation: 1, state: "committed", committed_at: 123 });
     if (url.endsWith("/resources/vault%3Aone/payloads/content/access")) return response({ resource: "vault:one", slot: "content", payload_version: 1, representation: "encrypted-envelope-v1", object_digest: "a".repeat(64), object_size: 64, download_url: "https://objects.test/download", download_method: "GET", expires_at: 123, audience: "user:owner", resource_revision: 1, lifecycle_generation: 1 });
+    if (url.endsWith("/resources/integration%3Aslack/executions/preflight")) return response({ request_fingerprint: "a".repeat(64), method: "POST", path: "/messages", query: "channel=C123", content_type: "application/json", request_body_digest: "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4", request_body_size: 2, resource: "integration:slack", resource_revision: 1, lifecycle_generation: 1, catalog_snapshot_id: "snapshot", catalog_entry_id: "entry", catalog_entry_revision: "revision", policy_revision: "policy", payload_slot: "provider_credential", payload_version: 1, payload_representation: "encrypted-envelope-v1", execution_mode: "managed", key_resource: "organization:acme", key_version: 1, response_policy_ref: "encrypt_all", request_aad: "YWFk", expires_at: 123 }, 200, { "Lotor-Execution-Token": "execution-capability-abcdefghijklmnopqrstuvwxyz" });
+    if (url.endsWith("/resources/integration%3Aslack/executions/commit")) return response({ status: "completed", request_fingerprint: "a".repeat(64), resource: "integration:slack", catalog_entry_id: "entry", payload_slot: "provider_credential", payload_version: 1, payload_representation: "encrypted-envelope-v1", execution_mode: "managed", provider_status: 200, protected_response: "protected-response", expires_at: 123 });
     if (url.endsWith("/resources/vault%3Aone/payloads/content/rewraps")) return response({ resource: "vault:one", slot: "content", payload_version: 1, wrap_revision: 1, key_binding_ref: "vault:one", previous_key_version: 1, key_version: 2, wrapped_payload_key: "new-wrap", aad_hash: "A".repeat(43), rewrapper_subject: "service_account:box", rewrapper_key_id: "box-key", resource_revision: 1, lifecycle_generation: 1 });
 	if (url.endsWith("/resources/vault%3Aone/payloads/content") && init.method === "DELETE") return response({ resource: "vault:one", slot: "content", payload_version: 1, state: "deleting", idempotent: false }, 202);
 	if (url.endsWith("/resources/vault%3Aone/move")) return response({ id: "op_move", kind: "resource_move", status: "pending", target_kind: "resource", target_id: "vault:one", request_hash: "a".repeat(64), created_at: 1, updated_at: 1 }, 202);
@@ -106,6 +108,40 @@ function fixtureFetch(requests: RecordedRequest[]): BrowserFetch {
     return response({ error: "not found" }, 404);
   };
 }
+
+for (const mode of ["direct", "same-origin"] as const) test(`executes through the browser user SDK with ${mode} token custody`, async () => {
+  const requests: RecordedRequest[] = [];
+  const tokenStore = new MemoryTokenStore(); tokenStore.setToken("user-session");
+  const sdk = mode === "direct" ? client(requests, tokenStore) : new LotorBrowserClient({
+    mode: "same-origin", clientId: "signalbox_web", publishableKey: "lp_sbx_test", csrfToken: () => "csrf", fetch: fixtureFetch(requests),
+  });
+  const plain = { method: "POST", path: "/messages", query: "channel=C123", contentType: "application/json", body: new TextEncoder().encode("hi") };
+  const preflight = await sdk.preflightResourceExecution("integration:slack", plain);
+  assert.equal(preflight.requestBodyDigest, "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4");
+  assert.equal(preflight.keyResource, "organization:acme");
+  assert.equal(preflight.keyVersion, 1);
+  assert.equal("token" in preflight, false);
+  const completed = await sdk.commitResourceExecution("integration:slack", preflight, "protected-request");
+  assert.equal(completed.status, "completed");
+  const commitHeaders = new Headers(requests[1]?.init.headers);
+  assert.equal(commitHeaders.get("Lotor-Execution-Token"), mode === "direct" ? "execution-capability-abcdefghijklmnopqrstuvwxyz" : null);
+  assert.equal(commitHeaders.get("Authorization"), mode === "direct" ? "Bearer user-session" : null);
+  if (mode === "same-origin") assert.equal(commitHeaders.get("X-Lotor-CSRF"), "csrf");
+  assert.deepEqual(JSON.parse(String(requests[1]?.init.body)), { request_fingerprint: "a".repeat(64), protected_request: "protected-request", response_policy_ref: "encrypt_all" });
+  await assert.rejects(sdk.preflightResourceExecution("integration:slack", { ...plain, query: "z=1&a=2" }), /canonical/);
+});
+
+test("rejects execution preflight metadata changed by the transport", async () => {
+  const tokenStore = new MemoryTokenStore(); tokenStore.setToken("user-session");
+  const sdk = new LotorBrowserClient({ baseUrl: "https://api.lotor.test", clientId: "app", publishableKey: "pk", tokenStore, fetch: async () => response({
+    request_fingerprint: "a".repeat(64), method: "DELETE", path: "/messages", query: "", content_type: "application/json",
+    request_body_digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", request_body_size: 0,
+    resource: "integration:slack", resource_revision: 1, lifecycle_generation: 1, catalog_snapshot_id: "snapshot", catalog_entry_id: "entry",
+    catalog_entry_revision: "revision", policy_revision: "policy", payload_slot: "provider_credential", payload_version: 1,
+    payload_representation: "raw", execution_mode: "raw", expires_at: 123,
+  }, 200, { "Lotor-Execution-Token": "execution-capability-abcdefghijklmnopqrstuvwxyz" }) });
+  await assert.rejects(sdk.preflightResourceExecution("integration:slack", { method: "GET", path: "/messages", query: "", contentType: "application/json", body: new Uint8Array() }), /does not match/);
+});
 
 function client(requests: RecordedRequest[], tokenStore?: TokenStore): LotorBrowserClient {
   return new LotorBrowserClient({
