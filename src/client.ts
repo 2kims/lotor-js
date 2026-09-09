@@ -9,6 +9,7 @@ import {
 import * as decode from "./decode.js";
 import { iteratePages, pollOperation, type PageOptions, type PollOptions } from "./async-helpers.js";
 import { claimTransferredSubjectKey, createClaimTransferKey, createSubjectKeyRegistration, unlockSubjectKeyBackup } from "./key-access.js";
+import { canonicalProviderQuery, type ProviderPlainRequest, type ResourceExecutionAuthorization, type ResourceExecutionPreflight } from "./resource-execution.js";
 import {
   MemoryTokenStore,
   type ApplicationSession,
@@ -130,6 +131,10 @@ function safeRedirectUrl(value: string, name: string): string {
   return url.toString();
 }
 
+function canonicalExecutionQuery(value: string): string {
+  return canonicalProviderQuery(new URLSearchParams(value));
+}
+
 export class LotorBrowserClient {
   readonly clientId: string;
   readonly publishableKey: string;
@@ -142,6 +147,7 @@ export class LotorBrowserClient {
   private readonly applicationPath: string;
   private readonly sameOrigin: boolean;
   private readonly fetcher: BrowserFetch;
+  private readonly executionTokens = new Map<string, { token: string; expiresAt: number }>();
 
   constructor(options: LotorBrowserOptions) {
     this.clientId = bounded(options.clientId, "clientId", 256);
@@ -211,6 +217,7 @@ export class LotorBrowserClient {
     try {
       await this.transport.request(`${this.applicationPath}/session`, { method: "DELETE" }, true);
     } finally {
+      this.executionTokens.clear();
       if (!this.sameOrigin) await this.tokenStore.clearToken();
     }
   }
@@ -407,6 +414,47 @@ export class LotorBrowserClient {
 
   private resourcePayloadPath(resource: string, slot: string): string {
     return `${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/payloads/${encodeURIComponent(bounded(slot, "slot", 128))}`;
+  }
+
+  async preflightResourceExecution(resource: string, input: ProviderPlainRequest): Promise<ResourceExecutionPreflight> {
+    if (!["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"].includes(input.method) || input.path.length === 0 || input.path.length > 4096 || !input.path.startsWith("/") || input.path.startsWith("//") || /[?\\\r\n]/u.test(input.path)) throw new Error("invalid canonical provider request path");
+    if (input.query.length > 4096 || /[#\r\n]/u.test(input.query) || canonicalExecutionQuery(input.query) !== input.query) throw new Error("invalid canonical provider request query");
+    if (input.contentType.length === 0 || input.contentType.length > 256 || input.contentType.trim().toLowerCase() !== input.contentType) throw new Error("invalid canonical provider content type");
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", input.body.slice().buffer)), byte => byte.toString(16).padStart(2, "0")).join("");
+    const result = await this.transport.requestWithMetadata<unknown>(`${this.resourceExecutionPath(resource)}/preflight`, {
+      method: "POST", headers: { "X-Lotor-Request": "lotor-js-v1" }, body: JSON.stringify({
+        method: input.method, path: input.path, query: input.query, content_type: input.contentType,
+        request_body_digest: digest, request_body_size: input.body.length,
+      }),
+    }, true);
+    const preflight = decode.resourceExecutionPreflight(result.body);
+    if (preflight.method !== input.method || preflight.path !== input.path || preflight.query !== input.query || preflight.contentType !== input.contentType || preflight.requestBodyDigest !== digest || preflight.requestBodySize !== input.body.length || preflight.resource !== resource) throw new Error("resource execution preflight does not match request");
+    const token = this.sameOrigin ? undefined : result.headers.get("Lotor-Execution-Token")?.trim();
+    if (!this.sameOrigin && !token) throw new Error("Lotor resource execution preflight response is missing its credential");
+    if (token) {
+      for (const [fingerprint, stored] of this.executionTokens) if (stored.expiresAt <= Date.now() * 1000) this.executionTokens.delete(fingerprint);
+      if (this.executionTokens.size >= 32) this.executionTokens.delete(this.executionTokens.keys().next().value!);
+      this.executionTokens.set(preflight.requestFingerprint, { token, expiresAt: preflight.expiresAt });
+    }
+    return preflight;
+  }
+
+  async commitResourceExecution(resource: string, preflight: ResourceExecutionPreflight, protectedRequest?: string): Promise<ResourceExecutionAuthorization> {
+    if (preflight.resource !== resource) throw new Error("resource execution preflight does not match resource");
+    if ((preflight.payloadRepresentation === "raw") !== (protectedRequest === undefined)) throw new Error("resource execution protection does not match preflight mode");
+    const headers: Record<string, string> = { "X-Lotor-Request": "lotor-js-v1" };
+    if (!this.sameOrigin) headers["Lotor-Execution-Token"] = bounded(this.executionTokens.get(preflight.requestFingerprint)?.token ?? "", "execution token", 2048);
+    const authorization = decode.resourceExecutionAuthorization(await this.transport.request(`${this.resourceExecutionPath(resource)}/commit`, {
+      method: "POST", headers, body: JSON.stringify({ request_fingerprint: preflight.requestFingerprint,
+        ...(protectedRequest === undefined ? {} : { protected_request: bounded(protectedRequest, "protectedRequest", 3 << 20), response_policy_ref: preflight.responsePolicyRef }),
+      }),
+    }, true));
+    if (authorization.requestFingerprint !== preflight.requestFingerprint || authorization.resource !== preflight.resource || authorization.catalogEntryId !== preflight.catalogEntryId || authorization.payloadSlot !== preflight.payloadSlot || authorization.payloadVersion !== preflight.payloadVersion || authorization.payloadRepresentation !== preflight.payloadRepresentation || authorization.executionMode !== preflight.executionMode || authorization.expiresAt !== preflight.expiresAt) throw new Error("resource execution authorization does not match preflight");
+    return authorization;
+  }
+
+  private resourceExecutionPath(resource: string): string {
+    return `${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/executions`;
   }
 
   async enrollSubjectKey(input: EnrollSubjectKeyInput): Promise<SubjectKeyEnrollment> {

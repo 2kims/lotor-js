@@ -2,8 +2,12 @@
 
 ## Unreleased
 
-## [0.2.1-rc.1](https://github.com/2kims/lotor-js/compare/v0.2.0-rc.1...v0.2.1-rc.1) (2026-09-08)
+- Add browser-user provider execution preflight/commit, browser-only request
+  protection and response opening helpers, and canonical query construction.
+  Same-origin gateways retain the 30-second execution capability in a scoped
+  HttpOnly cookie; application backends never receive E2EE plaintext.
 
+## [0.2.1-rc.1](https://github.com/2kims/lotor-js/compare/v0.2.0-rc.1...v0.2.1-rc.1) (2026-09-08)
 
 ### Miscellaneous Chores
 

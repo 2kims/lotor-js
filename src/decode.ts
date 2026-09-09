@@ -22,6 +22,62 @@ import type {
   EncryptionActionMutation,
 } from "./types.js";
 import { decodeBase64url, type EncryptedResourceEnvelope } from "./key-access.js";
+import type { ResourceExecutionAuthorization, ResourceExecutionPreflight } from "./resource-execution.js";
+
+export function resourceExecutionPreflight(value: unknown): ResourceExecutionPreflight {
+  const input = record(value, "resource execution preflight");
+  const allowed = ["request_fingerprint", "method", "path", "query", "content_type", "request_body_digest", "request_body_size", "resource", "resource_revision", "lifecycle_generation", "catalog_snapshot_id", "catalog_entry_id", "catalog_entry_revision", "policy_revision", "payload_slot", "payload_version", "payload_representation", "execution_mode", "key_resource", "key_version", "response_policy_ref", "request_aad", "expires_at"];
+  if (Object.keys(input).some(key => !allowed.includes(key))) throw new Error("unexpected resource execution preflight field");
+  const representation = enumString(input.payload_representation, "payload representation", ["raw", "encrypted-envelope-v1"] as const);
+  const mode = enumString(input.execution_mode, "execution mode", ["raw", "managed", "customer_box"] as const);
+  const result: ResourceExecutionPreflight = {
+    requestFingerprint: digest(input.request_fingerprint, "request fingerprint"), resource: string(input.resource, "resource"),
+    catalogEntryId: string(input.catalog_entry_id, "catalog entry"), payloadSlot: string(input.payload_slot, "payload slot"),
+    payloadVersion: positiveInteger(input.payload_version, "payload version"), payloadRepresentation: representation,
+    executionMode: mode, expiresAt: integer(input.expires_at, "execution expiry"), method: string(input.method, "method"),
+    path: string(input.path, "path"), query: string(input.query, "query"), contentType: string(input.content_type, "content type"),
+    requestBodyDigest: digest(input.request_body_digest, "request body digest"), requestBodySize: integer(input.request_body_size, "request body size"),
+  };
+  if ((representation === "raw") !== (mode === "raw")) throw new Error("inconsistent resource execution mode");
+  if (input.request_aad !== undefined) result.requestAad = string(input.request_aad, "request AAD");
+  if (input.response_policy_ref !== undefined) result.responsePolicyRef = enumString(input.response_policy_ref, "response policy", ["encrypt_all"] as const);
+  if (input.key_resource !== undefined) result.keyResource = string(input.key_resource, "key resource");
+  if (input.key_version !== undefined) result.keyVersion = positiveInteger(input.key_version, "key version");
+  if (representation === "encrypted-envelope-v1" && (!result.requestAad || result.responsePolicyRef !== "encrypt_all" || !result.keyResource || result.keyVersion === undefined)) throw new Error("incomplete encrypted execution preflight");
+  return result;
+}
+
+export function resourceExecutionAuthorization(value: unknown): ResourceExecutionAuthorization {
+  const input = record(value, "resource execution authorization");
+  const allowed = ["status", "request_fingerprint", "resource", "catalog_entry_id", "payload_slot", "payload_version", "payload_representation", "execution_mode", "provider_status", "protected_response", "expires_at"];
+  if (Object.keys(input).some(key => !allowed.includes(key))) throw new Error("unexpected resource execution authorization field");
+  const status = enumString(input.status, "execution status", ["authorized", "completed"] as const);
+  const result: ResourceExecutionAuthorization = {
+    status, requestFingerprint: digest(input.request_fingerprint, "request fingerprint"), resource: string(input.resource, "resource"),
+    catalogEntryId: string(input.catalog_entry_id, "catalog entry"), payloadSlot: string(input.payload_slot, "payload slot"),
+    payloadVersion: positiveInteger(input.payload_version, "payload version"),
+    payloadRepresentation: enumString(input.payload_representation, "payload representation", ["raw", "encrypted-envelope-v1"] as const),
+    executionMode: enumString(input.execution_mode, "execution mode", ["raw", "managed", "customer_box"] as const),
+    expiresAt: integer(input.expires_at, "execution expiry"),
+  };
+  if (input.provider_status !== undefined) result.providerStatus = positiveInteger(input.provider_status, "provider status");
+  if (input.protected_response !== undefined) result.protectedResponse = string(input.protected_response, "protected response");
+  if (status === "completed" && (result.providerStatus === undefined || result.providerStatus > 599 || !result.protectedResponse)) throw new Error("incomplete completed execution");
+  if (status === "authorized" && (result.providerStatus !== undefined || result.protectedResponse !== undefined)) throw new Error("invalid raw execution authorization");
+  return result;
+}
+
+function digest(value: unknown, name: string): string {
+  const result = string(value, name);
+  if (!/^[a-f0-9]{64}$/u.test(result)) throw new Error(`invalid ${name}`);
+  return result;
+}
+
+function positiveInteger(value: unknown, name: string): number {
+  const result = integer(value, name);
+  if (result < 1) throw new Error(`invalid ${name}`);
+  return result;
+}
 
 export function scimDirectory(value: unknown): import("./types.js").SCIMDirectory {
   const input = record(value, "SCIM directory");
