@@ -7,14 +7,19 @@
   Same-origin gateways retain the 30-second execution capability in a scoped
   HttpOnly cookie; application backends never receive E2EE plaintext.
 
-## [0.2.2-rc.1](https://github.com/2kims/lotor-js/compare/v0.2.1-rc.1...v0.2.2-rc.1) (2026-09-12)
+## [0.2.3-rc.1](https://github.com/2kims/lotor-js/compare/v0.2.2-rc.1...v0.2.3-rc.1) (2026-09-12)
+
+
+### Miscellaneous Chores
+
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#21](https://github.com/2kims/lotor-js/issues/21)) ([4719316](https://github.com/2kims/lotor-js/commit/471931610f153eef6ab1c888812f16e1c203587e))
+
+## [0.2.2-rc.1](https://github.com/2kims/lotor-js/compare/v0.2.1-rc.1...v0.2.2-rc.1) (2026-09-09)
 
 
 ### Miscellaneous Chores
 
 * sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#19](https://github.com/2kims/lotor-js/issues/19)) ([7b91f93](https://github.com/2kims/lotor-js/commit/7b91f93709c6dbd0a84306739f2f9a50ebbacdeb))
-* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#21](https://github.com/2kims/lotor-js/issues/21)) ([4719316](https://github.com/2kims/lotor-js/commit/471931610f153eef6ab1c888812f16e1c203587e))
-
 ## [0.2.1-rc.1](https://github.com/2kims/lotor-js/compare/v0.2.0-rc.1...v0.2.1-rc.1) (2026-09-08)
 
 ### Miscellaneous Chores
