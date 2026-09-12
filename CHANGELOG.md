@@ -7,6 +7,22 @@
   Same-origin gateways retain the 30-second execution capability in a scoped
   HttpOnly cookie; application backends never receive E2EE plaintext.
 
+## [0.2.4-rc.1](https://github.com/2kims/lotor-js/compare/v0.2.3-rc.1...v0.2.4-rc.1) (2026-09-12)
+
+
+### Miscellaneous Chores
+
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([9634657](https://github.com/2kims/lotor-js/commit/9634657ae10c48d61ae8cfe307a61cd545e6abfd))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#11](https://github.com/2kims/lotor-js/issues/11)) ([17cc8b4](https://github.com/2kims/lotor-js/commit/17cc8b42a9ad8518c47e6e7a1d1c99e9e0e3e4b4))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#13](https://github.com/2kims/lotor-js/issues/13)) ([a300084](https://github.com/2kims/lotor-js/commit/a3000849aed2ed1ab47ac16d61b55623072d04d9))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#17](https://github.com/2kims/lotor-js/issues/17)) ([bcdbfdd](https://github.com/2kims/lotor-js/commit/bcdbfdd64b551b0c934e0165ebb991a7e5ec2b45))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#19](https://github.com/2kims/lotor-js/issues/19)) ([7b91f93](https://github.com/2kims/lotor-js/commit/7b91f93709c6dbd0a84306739f2f9a50ebbacdeb))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#21](https://github.com/2kims/lotor-js/issues/21)) ([4719316](https://github.com/2kims/lotor-js/commit/471931610f153eef6ab1c888812f16e1c203587e))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#3](https://github.com/2kims/lotor-js/issues/3)) ([8964b28](https://github.com/2kims/lotor-js/commit/8964b283814483419a9a7a31349be3b3f2310259))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#7](https://github.com/2kims/lotor-js/issues/7)) ([2dc099a](https://github.com/2kims/lotor-js/commit/2dc099aeb473b00b91fe9e19f47a4a1e5e6464a2))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#8](https://github.com/2kims/lotor-js/issues/8)) ([8c2874f](https://github.com/2kims/lotor-js/commit/8c2874fffc38969df8e5e41a28191553b17b7c1b))
+* sync [@lotor](https://github.com/lotor).dev/lotor-js public export ([#9](https://github.com/2kims/lotor-js/issues/9)) ([0006eee](https://github.com/2kims/lotor-js/commit/0006eee273e83c8756323b9552542f23607a2660))
+
 ## [0.2.3-rc.1](https://github.com/2kims/lotor-js/compare/v0.2.2-rc.1...v0.2.3-rc.1) (2026-09-12)
 
 
