@@ -21,6 +21,7 @@ export type {
   DiscoverableCatalog,
   DiscoverableCatalogList,
   PublishedCatalogEntryList,
+  CatalogSnapshotDocument,
   CatalogBindingInput,
   CatalogEntry,
   CatalogEntryList,

@@ -142,6 +142,8 @@ export declare class LotorBrowserClient {
         cursor?: string;
         limit?: number;
     }): Promise<import("./types.js").PublishedCatalogEntryList>;
+    /** Reads the canonical OpenAPI document stored with an authorized published snapshot. */
+    availableCatalogSnapshotDocument(catalogId: string, snapshotId: string): Promise<import("./types.js").CatalogSnapshotDocument>;
     bindResourceCatalog(resource: string, input: import("./types.js").CatalogBindingInput, idempotencyKey: string): Promise<import("./types.js").DurableOperation>;
     private catalogPageQuery;
     /** Reads only the published snapshot pinned to an authorized resource. */

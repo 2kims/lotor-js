@@ -21,7 +21,9 @@ export interface BrowserRequestTransport {
   requestWithMetadata<T>(path: string, init?: RequestInit, authenticated?: boolean): Promise<{ body: T; headers: Headers }>;
 }
 
-const maximumJSONResponseBytes = 4 * 1024 * 1024;
+// Catalog snapshot documents are bounded to five MiB by the Control importer;
+// leave room for their response envelope while retaining a hard browser cap.
+const maximumJSONResponseBytes = 6 * 1024 * 1024;
 
 async function boundedJSON<T>(response: Response): Promise<T> {
   if (!response.body) throw new Error("invalid Lotor JSON response");
