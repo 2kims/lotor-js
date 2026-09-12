@@ -564,6 +564,13 @@ export interface DiscoverableCatalog {
 }
 export interface DiscoverableCatalogList { items: DiscoverableCatalog[]; nextCursor: string | null }
 export interface PublishedCatalogEntryList extends CatalogEntryList { snapshotId: string }
+
+export interface CatalogSnapshotDocument {
+  catalogId: string;
+  snapshotId: string;
+  documentDigest: string;
+  document: Record<string, unknown>;
+}
 export interface CatalogBindingInput {
   catalogId: string; snapshotId: string; entryKinds: string[];
   expectedResourceRevision: number; expectedLifecycleGeneration: number;

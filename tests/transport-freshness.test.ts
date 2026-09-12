@@ -26,8 +26,8 @@ for (const mode of ["public", "same-origin"] as const) for (const deniedStatus o
 }
 
 for (const mode of ["public", "same-origin"] as const) {
-  test(`${mode} transport rejects JSON responses over four MiB`, async () => {
-    const fetcher: BrowserFetch = async () => new Response(`{"value":"${"x".repeat(4 * 1024 * 1024)}"}`, {
+  test(`${mode} transport rejects JSON responses over six MiB`, async () => {
+    const fetcher: BrowserFetch = async () => new Response(`{"value":"${"x".repeat(6 * 1024 * 1024)}"}`, {
       headers: { "Content-Type": "application/json" },
     });
     const transport = mode === "public"

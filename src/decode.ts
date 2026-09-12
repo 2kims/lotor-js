@@ -412,6 +412,20 @@ export function publishedCatalogEntries(value: unknown): import("./types.js").Pu
   return { ...catalogEntries(value), snapshotId: string(record(value, "published entries").snapshot_id, "published snapshot") };
 }
 
+export function catalogSnapshotDocument(value: unknown): import("./types.js").CatalogSnapshotDocument {
+  const input = record(value, "catalog snapshot document");
+  const documentDigest = string(input.document_digest, "document digest");
+  if (!/^[0-9a-f]{64}$/.test(documentDigest)) {
+    throw new Error("document digest must be a lowercase SHA-256 digest");
+  }
+  return {
+    catalogId: string(input.catalog_id, "catalog id"),
+    snapshotId: string(input.snapshot_id, "snapshot id"),
+    documentDigest,
+    document: record(input.document, "OpenAPI document"),
+  };
+}
+
 function accountResourceReference(value: unknown, name: string): import("./types.js").AccountResourceReference {
   const input = record(value, name);
   const id = string(input.id, `${name} id`);

@@ -824,6 +824,14 @@ export class LotorBrowserClient {
     return decode.publishedCatalogEntries(await this.transport.request(`${this.applicationPath}/me/catalogs/${encodeURIComponent(bounded(catalogId, "catalogId", 300))}/entries${this.catalogPageQuery(options)}`, {}, true));
   }
 
+  /** Reads the canonical OpenAPI document stored with an authorized published snapshot. */
+  async availableCatalogSnapshotDocument(catalogId: string, snapshotId: string): Promise<import("./types.js").CatalogSnapshotDocument> {
+    return decode.catalogSnapshotDocument(await this.transport.request(
+      `${this.applicationPath}/me/catalogs/${encodeURIComponent(bounded(catalogId, "catalogId", 300))}/snapshots/${encodeURIComponent(bounded(snapshotId, "snapshotId", 300))}/document`,
+      {}, true,
+    ));
+  }
+
   async bindResourceCatalog(resource: string, input: import("./types.js").CatalogBindingInput, idempotencyKey: string): Promise<import("./types.js").DurableOperation> {
     for (const value of [input.expectedResourceRevision, input.expectedLifecycleGeneration]) {
       if (!Number.isSafeInteger(value) || value < 1) throw new Error("binding revisions must be positive safe integers");
