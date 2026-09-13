@@ -89,8 +89,8 @@ function fixtureFetch(requests: RecordedRequest[]): BrowserFetch {
     if (url.endsWith("/resources/vault%3Aone/collaborators?view=effective")) return response({ resource: "vault:one", collaborators: [{ kind: "invitation", id: "cinv_1", link_id: "lnk_1", relations: ["member"], status: "pending_acceptance", recipient: { type: "email", display: "kim@example.com" }, expires_at: 123 }], next_cursor: null });
     if (url.endsWith("/resources/personal-bcc69c42b94e9d215af82ddb/collaborators?view=effective")) return response({ resource: "personal-bcc69c42b94e9d215af82ddb", collaborators: [{ kind: "invitation", id: "cinv_1", link_id: "lnk_1", relations: ["member"], status: "pending_acceptance", recipient: { type: "email", display: "kim@example.com" }, expires_at: 123 }], next_cursor: null });
     if (url.includes("/resources/vault%3Aone/collaborators?view=effective&email=kim%40example.com")) return response({ resource: "vault:one", collaborators: [{ kind: "user", id: "user:kim", email: "kim@example.com", relations: ["member"], status: "active", access: { direct: false, paths: [{ type: "group", relation: "member", group: "group:engineering", subject_relation: "member", via: [{ resource: "group:engineering", subject_relation: "member" }] }] } }], next_cursor: null });
-    if (url.endsWith("/resources/search")) return response({ resources: [{ resource: "vault:one", resource_type: "vault", display_name: "Production", status: "active", parent: { resource: "project:platform", resource_type: "project", display_name: "Platform" }, collaborator_matches: [{ kind: "user", id: "user:kim", email: "kim@example.com", relations: ["member"], status: "active", access: { direct: false, paths: [{ type: "group", relation: "member", group: "group:engineering", subject_relation: "member", via: [{ resource: "group:engineering", subject_relation: "member" }] }] } }] }], next_cursor: "next_search" });
-    if (url.endsWith("/resources/group%3Aincident-commanders") && init.method === "PUT") return response({ id: "res_group", resource: "group:incident-commanders", resource_type: "group", display_name: "Incident Commanders", parent: "org:acme", status: "pending_encryption", revision: 1, lifecycle_generation: 1, encryption: { required: true, status: "provisioning", key_scope: "resource", effective_key_resource: "group:incident-commanders" } }, 202);
+    if (url.endsWith("/resources/search")) return response({ resources: [{ resource: "vault:one", resource_type: "vault", display_name: "Production", status: "active", references: { environment: "environment:preview" }, parent: { resource: "project:platform", resource_type: "project", display_name: "Platform" }, collaborator_matches: [{ kind: "user", id: "user:kim", email: "kim@example.com", relations: ["member"], status: "active", access: { direct: false, paths: [{ type: "group", relation: "member", group: "group:engineering", subject_relation: "member", via: [{ resource: "group:engineering", subject_relation: "member" }] }] } }] }], next_cursor: "next_search" });
+    if (url.endsWith("/resources/group%3Aincident-commanders") && init.method === "PUT") return response({ id: "res_group", resource: "group:incident-commanders", resource_type: "group", display_name: "Incident Commanders", parent: "org:acme", references: { environment: "environment:preview" }, status: "pending_encryption", revision: 1, lifecycle_generation: 1, encryption: { required: true, status: "provisioning", key_scope: "resource", effective_key_resource: "group:incident-commanders" } }, 202);
     if (url.endsWith("/resources/group%3Aincident-commanders")) return response({ id: "res_group", resource: "group:incident-commanders", resource_type: "group", display_name: "Incident Commanders", parent: "org:acme", status: "active", revision: 1, lifecycle_generation: 1, encryption: { required: true, status: "ready", key_scope: "resource", effective_key_resource: "group:incident-commanders", key_resource: "group:incident-commanders", key_version: 1 } });
     if (url.endsWith("/resources/vault%3Aone/payloads/content/uploads")) return response({ resource: "vault:one", slot: "content", payload_version: 3, expected_payload_version: 0, upload_url: "https://objects.test/upload", upload_method: "PUT", required_headers: { "x-amz-meta-sha256": "abc" }, expires_at: 123 }, 201, { "Lotor-Payload-Token": "payload-token" });
     if (url.endsWith("/resources/vault%3Aone/payloads/content/commits")) return response({ resource: "vault:one", slot: "content", schema_id: "av.vault.v1", payload_version: 1, representation: "encrypted-envelope-v1", object_digest: "a".repeat(64), object_size: 64, encryption_suite: "AES-256-GCM", key_binding_ref: "vault:one", key_version: 1, wrapped_payload_key: "wrapped", aad_hash: "aad", encryptor_subject: "user:owner", encryptor_key_id: "key_1", resource_revision: 1, lifecycle_generation: 1, state: "committed", committed_at: 123 });
@@ -363,13 +363,14 @@ test("creates organizations and child resources through authenticated public ope
   const requests: RecordedRequest[] = [];
   const sdk = client(requests, tokenStore);
   assert.equal((await sdk.createOrganization("Acme Operations", "create-org-1")).id, "org_2");
-  const group = await sdk.putResource("group:incident-commanders", { resourceType: "group", displayName: "Incident Commanders", parent: "org:acme", keyScope: "resource" });
+  const group = await sdk.putResource("group:incident-commanders", { resourceType: "group", displayName: "Incident Commanders", parent: "org:acme", keyScope: "resource", references: { environment: "environment:preview" } });
   assert.equal(group.parent, "org:acme");
   assert.equal(group.status, "pending_encryption");
   assert.deepEqual(group.encryption, { required: true, status: "provisioning", keyScope: "resource", effectiveKeyResource: "group:incident-commanders" });
   assert.equal(new Headers(requests[0]?.init.headers).get("Idempotency-Key"), "create-org-1");
   assert.deepEqual(JSON.parse(String(requests[0]?.init.body)), { name: "Acme Operations" });
-  assert.deepEqual(JSON.parse(String(requests[1]?.init.body)), { resource_type: "group", display_name: "Incident Commanders", parent: "org:acme", key_scope: "resource" });
+  assert.deepEqual(group.references, { environment: "environment:preview" });
+  assert.deepEqual(JSON.parse(String(requests[1]?.init.body)), { resource_type: "group", display_name: "Incident Commanders", parent: "org:acme", key_scope: "resource", references: { environment: "environment:preview" } });
   assert.equal((await sdk.resource("group:incident-commanders")).encryption.status, "ready");
 });
 
@@ -567,21 +568,22 @@ test("searches collaborators and manageable resources with group path context", 
 
   const resources = await sdk.searchResources({
     filters: {
-      resource: { types: ["vault"] },
+      resource: { types: ["vault"], references: { environment: "environment:preview" } },
       collaborator: { email: "kim@example.com", view: "effective", viaGroups: ["group:engineering"] },
     },
-    include: ["parent", "collaborator_matches"],
+    include: ["parent", "collaborator_matches", "references"],
     sort: { field: "resource", direction: "asc" },
     page: { limit: 25 },
   });
   assert.equal(resources.resources[0]?.parent?.resource, "project:platform");
   assert.equal(resources.resources[0]?.collaboratorMatches?.[0]?.access?.paths[0]?.group, "group:engineering");
+  assert.deepEqual(resources.resources[0]?.references, { environment: "environment:preview" });
   assert.deepEqual(JSON.parse(String(requests[1]?.init.body)), {
     filters: {
-      resource: { types: ["vault"] },
+      resource: { types: ["vault"], references: { environment: "environment:preview" } },
       collaborator: { email: "kim@example.com", view: "effective", via_groups: ["group:engineering"] },
     },
-    include: ["parent", "collaborator_matches"],
+    include: ["parent", "collaborator_matches", "references"],
     sort: { field: "resource", direction: "asc" },
     page: { limit: 25 },
   });

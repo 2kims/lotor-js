@@ -250,6 +250,7 @@ export class LotorBrowserClient {
         ...(input.displayName === undefined ? {} : { display_name: bounded(input.displayName, "displayName", 512) }),
         ...(input.parent === undefined ? {} : { parent: bounded(input.parent, "parent", 512) }),
         ...(input.keyScope === undefined ? {} : { key_scope: input.keyScope }),
+        ...(input.references === undefined ? {} : { references: wireResourceReferences(input.references) }),
       }),
     }, true));
   }
@@ -746,6 +747,7 @@ export class LotorBrowserClient {
           ...(resource.types === undefined ? {} : { types: resource.types.map(value => bounded(value, "resource type", 128)) }),
           ...(resource.parent === undefined ? {} : { parent: bounded(resource.parent, "resource parent", 512) }),
           ...(resource.statuses === undefined ? {} : { statuses: resource.statuses.map(value => bounded(value, "resource status", 64)) }),
+          ...(resource.references === undefined ? {} : { references: wireResourceReferences(resource.references) }),
         } }),
         ...(collaborator === undefined ? {} : { collaborator: {
           ...(collaborator.search === undefined ? {} : { search: bounded(collaborator.search, "collaborator search", 256) }),
@@ -955,6 +957,12 @@ function payloadObjectURL(value: string): URL {
   const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
   if ((url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) || url.username || url.password || url.hash) throw new Error("invalid payload object URL");
   return url;
+}
+
+function wireResourceReferences(references: Record<string, string>): Record<string, string> {
+  const entries = Object.entries(references);
+  if (entries.length > 16) throw new Error("resource references may contain at most 16 fields");
+  return Object.fromEntries(entries.map(([field, target]) => [bounded(field, "reference field", 128), bounded(target, "reference target", 512)]));
 }
 
 function wireResourceLinkEnvelope(envelope: ResourceLinkEnvelopeSubmission): Record<string, string> {
