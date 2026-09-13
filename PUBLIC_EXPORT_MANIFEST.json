@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "target": "browser",
-  "source_commit": "47f602b57403dfd031779d6ba1eca6c4d7301fcc",
+  "source_commit": "87ac4ee93f5dbda879a82a17358cf0d78f95c1f4",
   "version": "0.2.1-rc.1",
   "files": [
     {
@@ -50,7 +50,7 @@
     },
     {
       "path": "api/types.d.ts",
-      "sha256": "2d8fdcadd792b1d29993442f132b5b3102f66ae0d92da331c1a301a1261f963c"
+      "sha256": "662ea3e1a7d3ce2d0be24d2e517b121c1bc9f35ff346e7180d55a4db5ca7fa69"
     },
     {
       "path": "CHANGELOG.md",
@@ -114,11 +114,11 @@
     },
     {
       "path": "src/client.ts",
-      "sha256": "819adae9e4662b631e1deb9b98ff833bc8ef7ea1c63e452fab26ddee1107aa27"
+      "sha256": "aee21ad112fbb44cf71073cdf9679679b8e3d480be3d212c211c01d1ef5eda6e"
     },
     {
       "path": "src/decode.ts",
-      "sha256": "bb5fedbbb65fa6428aae5bcd5e769181cc918e634a80b5a1974ca3cde8303cf9"
+      "sha256": "bc1d1d45b77201796685ccc75748f32e76ce82ec152c4eb4d3628946729abe0b"
     },
     {
       "path": "src/index.ts",
@@ -142,7 +142,7 @@
     },
     {
       "path": "src/types.ts",
-      "sha256": "8ae0592070d58556013608da6a28d944b82f8c0f9223949b464cd50cf9d51514"
+      "sha256": "7aa35b10a16d3d12c4d80076d232bdabca9ea6bd289fc8580d7af3f7f3dc6413"
     },
     {
       "path": "tests/async-helpers.test.ts",
@@ -158,7 +158,7 @@
     },
     {
       "path": "tests/client.test.ts",
-      "sha256": "375082510d8696a10c6786fc71b94ebfcb2799114330b1de0f5f46bae6afbfb8"
+      "sha256": "1b6d669d86be51cbd9c7becd44f04769c225722e1e4671367330379e86e0395d"
     },
     {
       "path": "tests/encryption-action-context.test.ts",

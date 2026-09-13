@@ -338,6 +338,7 @@ export function resourceSearch(value: unknown): ResourceSearchList {
     resources: array(input.resources, "resource search results").map((raw) => {
       const item = record(raw, "resource search result");
       const parent = item.parent === undefined ? undefined : record(item.parent, "resource search parent");
+      const references = item.references === undefined ? undefined : record(item.references, "resource search references");
       return {
         resource: string(item.resource, "resource search resource"),
         resourceType: string(item.resource_type, "resource search resource type"),
@@ -351,6 +352,7 @@ export function resourceSearch(value: unknown): ResourceSearchList {
         ...(item.collaborator_matches === undefined ? {} : {
           collaboratorMatches: array(item.collaborator_matches, "resource collaborator matches").map(resourceCollaborator),
         }),
+        ...(references === undefined ? {} : { references: Object.fromEntries(Object.entries(references).map(([field, target]) => [field, string(target, `resource reference ${field}`)])) }),
       };
     }),
     nextCursor: input.next_cursor === null ? null : string(input.next_cursor, "resource search cursor"),
@@ -707,6 +709,7 @@ export function collaborationResource(value: unknown): CollaborationResource {
 	if (input.status !== "pending_encryption" && input.status !== "pending_payload" && input.status !== "pending_encryption_payload" && input.status !== "active" && input.status !== "disabled" && input.status !== "deleting" && input.status !== "failed" && input.status !== "deleted") throw new Error("invalid collaboration resource status");
 	const encryption = record(input.encryption, "collaboration resource encryption");
 	const binding = input.catalog_binding === undefined ? undefined : record(input.catalog_binding, "resource Catalog binding");
+	const references = input.references === undefined ? undefined : record(input.references, "resource references");
 	return {
     id: string(input.id, "collaboration resource id"),
     ...(input.link_id === undefined ? {} : { linkId: string(input.link_id, "collaboration resource link id") }),
@@ -725,6 +728,7 @@ export function collaborationResource(value: unknown): CollaborationResource {
 			entryKinds: array(binding.entry_kinds, "resource Catalog entry kinds").map(value => string(value, "resource Catalog entry kind")),
 			resourceRevision: integer(binding.resource_revision, "resource Catalog revision"),
 		} }),
+    ...(references === undefined ? {} : { references: Object.fromEntries(Object.entries(references).map(([field, target]) => [field, string(target, `resource reference ${field}`)])) }),
     encryption: {
       required: boolean(encryption.required, "collaboration resource encryption required"),
       status: string(encryption.status, "collaboration resource encryption status") as CollaborationResource["encryption"]["status"],

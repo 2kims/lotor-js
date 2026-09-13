@@ -128,6 +128,7 @@ export interface ResourceRegistration {
   displayName?: string;
   parent?: string;
   keyScope?: "organization" | "resource";
+  references?: Record<string, string>;
 }
 
 export interface CollaborationResourceEncryption {
@@ -152,6 +153,7 @@ export interface CollaborationResource {
   catalogBinding?: ResourceCatalogBinding;
   revision: number;
   lifecycleGeneration: number;
+  references?: Record<string, string>;
 }
 
 export interface ResourceCatalogBinding {
@@ -533,6 +535,7 @@ export interface ResourceCollaborator {
 export interface ResourceCollaboratorList { resource: string; collaborators: ResourceCollaborator[]; nextCursor: string | null }
 export interface ResourceSearchResourceFilters {
   search?: string; resources?: string[]; types?: string[]; parent?: string; statuses?: string[];
+  references?: Record<string, string>;
 }
 export interface ResourceSearchCollaboratorFilters {
   search?: string; email?: string; subjects?: string[]; kinds?: Array<"user" | "group" | "service_account" | "invitation">;
@@ -541,14 +544,14 @@ export interface ResourceSearchCollaboratorFilters {
 }
 export interface ResourceSearchInput {
   filters?: { resource?: ResourceSearchResourceFilters; collaborator?: ResourceSearchCollaboratorFilters };
-  include?: Array<"parent" | "collaborator_matches">;
+  include?: Array<"parent" | "collaborator_matches" | "references">;
   sort?: { field?: "display_name" | "resource_type" | "resource"; direction?: "asc" | "desc" };
   page?: { limit?: number; cursor?: string };
 }
 export interface ResourceSearchParent { resource: string; resourceType: string; displayName: string }
 export interface ResourceSearchResult {
   resource: string; resourceType: string; displayName: string; status: string;
-  parent?: ResourceSearchParent; collaboratorMatches?: ResourceCollaborator[];
+  parent?: ResourceSearchParent; collaboratorMatches?: ResourceCollaborator[]; references?: Record<string, string>;
 }
 export interface ResourceSearchList { resources: ResourceSearchResult[]; nextCursor: string | null }
 export interface CatalogEntry {

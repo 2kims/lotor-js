@@ -133,6 +133,7 @@ export interface ResourceRegistration {
     displayName?: string;
     parent?: string;
     keyScope?: "organization" | "resource";
+    references?: Record<string, string>;
 }
 export interface CollaborationResourceEncryption {
     required: boolean;
@@ -155,6 +156,7 @@ export interface CollaborationResource {
     catalogBinding?: ResourceCatalogBinding;
     revision: number;
     lifecycleGeneration: number;
+    references?: Record<string, string>;
 }
 export interface ResourceCatalogBinding {
     resource: string;
@@ -633,6 +635,7 @@ export interface ResourceSearchResourceFilters {
     types?: string[];
     parent?: string;
     statuses?: string[];
+    references?: Record<string, string>;
 }
 export interface ResourceSearchCollaboratorFilters {
     search?: string;
@@ -651,7 +654,7 @@ export interface ResourceSearchInput {
         resource?: ResourceSearchResourceFilters;
         collaborator?: ResourceSearchCollaboratorFilters;
     };
-    include?: Array<"parent" | "collaborator_matches">;
+    include?: Array<"parent" | "collaborator_matches" | "references">;
     sort?: {
         field?: "display_name" | "resource_type" | "resource";
         direction?: "asc" | "desc";
@@ -673,6 +676,7 @@ export interface ResourceSearchResult {
     status: string;
     parent?: ResourceSearchParent;
     collaboratorMatches?: ResourceCollaborator[];
+    references?: Record<string, string>;
 }
 export interface ResourceSearchList {
     resources: ResourceSearchResult[];
