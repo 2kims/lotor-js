@@ -587,7 +587,7 @@ export interface ResourceCredentialIssueInput { issuedTo: string; expiresAt?: nu
 export interface ResourceCredentialRotateInput { revokePreviousAt: number; expiresAt?: number }
 export interface AccountResourceReference { id: string; resource: string; type: string; name: string }
 export interface AccountResourcePathStep extends AccountResourceReference { subjectRelation: string }
-export interface AccountResourceAccessPath { type: "direct" | "group"; relation: string; via: AccountResourcePathStep[] }
+export interface AccountResourceAccessPath { type: "direct" | "group" | "ancestor"; relation: string; via: AccountResourcePathStep[] }
 export interface AccountResource extends AccountResourceReference {
   parent?: AccountResourceReference; relations: string[];
   accessState: "active" | "pending_encryption";

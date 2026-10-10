@@ -74,7 +74,7 @@ function fixtureFetch(requests: RecordedRequest[]): BrowserFetch {
     if (url.endsWith("/organizations")) return response([{ id: "org_1", name: "Personal Workspace", current_role: "owner", member_count: 1, pending_invites: 0 }]);
     if (url.endsWith("/me/resources?parent=project%3Aexample&type=vault")) return response({ resources: [], next_cursor: null });
     if (url.endsWith("/me/resources?type=organization&type=vault&access_state=active&limit=25")) return response({ resources: [
-      { id: "res_org", resource: "organization:res_org", type: "organization", name: "Personal Workspace", relations: ["member"], access_state: "active", access: { direct: false, paths: [{ type: "group", relation: "member", via: [{ id: "res_group", resource: "group:res_group", type: "group", name: "Engineering", subject_relation: "member" }] }] } },
+      { id: "res_org", resource: "organization:res_org", type: "organization", name: "Personal Workspace", relations: [], access_state: "active", access: { direct: false, paths: [{ type: "ancestor", relation: "owner", via: [{ id: "res_vault", resource: "vault:res_vault", type: "vault", name: "Production", subject_relation: "owner" }] }] } },
       { id: "res_vault", resource: "vault:res_vault", type: "vault", name: "Production", parent: { id: "res_org", resource: "organization:res_org", type: "organization", name: "Personal Workspace" }, relations: ["owner"], access_state: "active", access: { direct: true, paths: [{ type: "direct", relation: "owner", via: [] }] } },
     ], next_cursor: "next_resources" });
     if (url.endsWith("/me/invitations?limit=25")) return response({ invitations: [{ id: "cinv_1", resource: { id: "res_1", resource: "vault:res_1", type: "vault", name: "Production" }, relation: "member", status: "pending_acceptance", expires_at: 123, encryption_required: true }], next_cursor: "next_1" });
@@ -637,8 +637,9 @@ test("lists and generically groups the authenticated account resource directory"
   const tokenStore = new MemoryTokenStore(); tokenStore.setToken("token");
   const requests: RecordedRequest[] = [];
   const listed = await client(requests, tokenStore).accountResources({ types: ["organization", "vault"], accessStates: ["active"], limit: 25 });
-  assert.equal(listed.resources[0]?.access.paths[0]?.via[0]?.id, "res_group");
-  assert.equal(listed.resources[0]?.access.paths[0]?.via[0]?.resource, "group:res_group");
+  assert.equal(listed.resources[0]?.access.paths[0]?.type, "ancestor");
+  assert.equal(listed.resources[0]?.access.paths[0]?.via[0]?.id, "res_vault");
+  assert.equal(listed.resources[0]?.access.paths[0]?.via[0]?.resource, "vault:res_vault");
   assert.equal(listed.resources[1]?.resource, "vault:res_vault");
   assert.equal(listed.resources[1]?.parent?.resource, "organization:res_org");
   assert.equal(listed.resources[1]?.parent?.id, "res_org");

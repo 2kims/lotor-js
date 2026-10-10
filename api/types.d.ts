@@ -758,7 +758,7 @@ export interface AccountResourcePathStep extends AccountResourceReference {
     subjectRelation: string;
 }
 export interface AccountResourceAccessPath {
-    type: "direct" | "group";
+    type: "direct" | "group" | "ancestor";
     relation: string;
     via: AccountResourcePathStep[];
 }
