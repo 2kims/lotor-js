@@ -451,7 +451,7 @@ export function accountResources(value: unknown): import("./types.js").AccountRe
           direct: boolean(access.direct, "account resource direct access"),
           paths: array(access.paths, "account resource access paths").map((rawPath) => {
             const path = record(rawPath, "account resource access path");
-            if (path.type !== "direct" && path.type !== "group") throw new Error("invalid account resource access path type");
+            if (path.type !== "direct" && path.type !== "group" && path.type !== "ancestor") throw new Error("invalid account resource access path type");
             return {
               type: path.type,
               relation: string(path.relation, "account resource access path relation"),
