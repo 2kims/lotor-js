@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add resource-owned event streams with principal-bound snapshot queries,
+  cursor pagination, server-side histograms and separately authorized bodies.
+
 - Add browser-user provider execution preflight/commit, browser-only request
   protection and response opening helpers, and canonical query construction.
   Same-origin gateways retain the 30-second execution capability in a scoped

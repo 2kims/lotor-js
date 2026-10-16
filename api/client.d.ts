@@ -1,4 +1,5 @@
 import { type BrowserFetch, type CSRFTokenProvider } from "./transport.js";
+import { ResourceEventStreamClient } from "./resource-events.js";
 import { type PageOptions, type PollOptions } from "./async-helpers.js";
 import { type ProviderPlainRequest, type ResourceExecutionAuthorization, type ResourceExecutionPreflight } from "./resource-execution.js";
 import { type ApplicationSession, type AuthenticatedSession, type CheckoutSession, type CreateCheckoutSessionInput, type OrganizationSummary, type PasswordlessChallenge, type PublicApplicationConfiguration, type PublicApplicationPricing, type TokenStore, type EnrollSubjectKeyInput, type SubjectKeyEnrollment, type SubjectKeyMutation, type SubjectKeyRecord, type ResourceLinkChange, type ResourceLinkCandidateSearchInput, type ResourceLinkCandidateSearchResult, type ResourceLinkPreflight, type ResourceLinkSendInput, type ResourceLinkSendResult, type ResourceLinkResult, type UnlinkResult, type ResourceCollaborationPolicyOverride, type ResourceCollaborationPolicyMutation, type ResourceCollaboratorList, type ResourceSearchInput, type ResourceSearchList, type AccountInvitationList, type AccountInvitationMutation, type AccountResourceList, type ResourceInvitationMutation, type ClaimSubjectKeyInput, type ClaimedSubjectKey, type ResourceLinkEnvelopeSubmission, type OrganizationE2EEPolicy, type ResourceSessionEnvelope, type EncryptionAction, type EncryptionActionMutation, type ResourcePayloadAccessLease, type ResourcePayloadManifest, type ResourcePayloadMutation, type ResourcePayloadUploadInput, type ResourcePayloadUploadIntent, type DurableOperation, type ResourceLifecycleFence, type ResourceMoveInput, type ResourceDeleteInput } from "./types.js";
@@ -41,6 +42,7 @@ export declare class LotorBrowserClient {
     private readonly executionTokens;
     constructor(options: LotorBrowserOptions);
     configuration(): Promise<PublicApplicationConfiguration>;
+    eventStream(resource: string, stream: string): ResourceEventStreamClient;
     pricing(): Promise<PublicApplicationPricing>;
     startPasswordless(email: string): Promise<PasswordlessChallenge>;
     verifyPasswordless(challengeId: string, code: string): Promise<AuthenticatedSession>;

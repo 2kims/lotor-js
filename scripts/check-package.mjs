@@ -38,6 +38,8 @@ try {
     "dist/index.js",
     "dist/key-access.d.ts",
     "dist/key-access.js",
+    "dist/resource-events.d.ts",
+    "dist/resource-events.js",
     "dist/resource-execution.d.ts",
     "dist/resource-execution.js",
     "dist/resource-payload.d.ts",

@@ -7,6 +7,7 @@ import {
   type CSRFTokenProvider,
 } from "./transport.js";
 import * as decode from "./decode.js";
+import { ResourceEventStreamClient } from "./resource-events.js";
 import { iteratePages, pollOperation, type PageOptions, type PollOptions } from "./async-helpers.js";
 import { claimTransferredSubjectKey, createClaimTransferKey, createSubjectKeyRegistration, unlockSubjectKeyBackup } from "./key-access.js";
 import { canonicalProviderQuery, type ProviderPlainRequest, type ResourceExecutionAuthorization, type ResourceExecutionPreflight } from "./resource-execution.js";
@@ -169,6 +170,11 @@ export class LotorBrowserClient {
 
   async configuration(): Promise<PublicApplicationConfiguration> {
     return decode.configuration(await this.transport.request(`${this.applicationPath}/configuration`));
+  }
+
+  eventStream(resource: string, stream: string): ResourceEventStreamClient {
+    if (!/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$/.test(stream)) throw new Error("invalid event stream");
+    return new ResourceEventStreamClient(this.transport, `${this.applicationPath}/resources/${encodeURIComponent(bounded(resource, "resource", 512))}/event-streams/${encodeURIComponent(stream)}`);
   }
 
   async pricing(): Promise<PublicApplicationPricing> {
