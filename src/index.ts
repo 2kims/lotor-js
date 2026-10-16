@@ -116,6 +116,7 @@ export type {
   EncryptionActionMutation,
 } from "./types.js";
 export { MemoryTokenStore } from "./types.js";
+export { ResourceEventStreamClient, type ResourceEventStreamInput, type ResourceEventInput, type ResourceEventMetadata, type ResourceEventDetail, type ResourceEventQueryInput, type ResourceEventQuery, type ResourceEventPage, type ResourceEventBucket } from "./resource-events.js";
 export { groupResourcesByType } from "./types.js";
 export { createSubjectKeyRegistration, unlockSubjectKeyBackup, createResourceEnvelope, unwrapResourceEnvelope, createResourceSessionKeyRequest, unwrapResourceSessionEnvelope, type CreateSubjectKeyRegistrationInput, type DeviceKeyMaterial, type SubjectKeyRecord, type SubjectKeyRegistrationRequest, type ResourceProvisioningMember, type CreateResourceEnvelopeInput, type ResourceEnvelopeRequest, type EncryptedResourceEnvelope, type ResourceSessionKeyRequest } from "./key-access.js";
 export { prepareBrowserResourcePayload, prepareManagedResourcePayload, prepareBrowserResourcePayloadRewrap, decryptBrowserResourcePayload, type PrepareBrowserResourcePayloadInput, type PrepareManagedResourcePayloadInput, type PrepareBrowserResourcePayloadRewrapInput, type PreparedBrowserResourcePayload, type BrowserResourcePayloadCryptographicMetadata } from "./resource-payload.js";
