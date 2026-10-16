@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "target": "browser",
-  "source_commit": "00154ebac8860ca62b83863b0e6408540d014189",
+  "source_commit": "379ca6467ce8ba9ac51efdc0cef6bc7fb4bf5254",
   "version": "0.2.5-rc.1",
   "files": [
     {
@@ -74,7 +74,7 @@
     },
     {
       "path": "pnpm-lock.yaml",
-      "sha256": "b785ff7f4ed87dcb165db23a05961cce6d8e62c141925f2f46871918e54b776a"
+      "sha256": "b158f2e4d2bda7d515855b17ec82d1feb0bfdc88630e60e76eba322be60f83e7"
     },
     {
       "path": "README.md",
