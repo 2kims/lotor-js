@@ -44,6 +44,8 @@ try {
     "dist/resource-execution.js",
     "dist/resource-payload.d.ts",
     "dist/resource-payload.js",
+    "dist/resource-value.d.ts",
+    "dist/resource-value.js",
     "dist/transport.d.ts",
     "dist/transport.js",
     "dist/types.d.ts",
