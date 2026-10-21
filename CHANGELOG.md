@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add local `decryptResourceValue` for the generic authenticated resource-value
+  format. Requires an unlocked resource key and explicitly expected execution,
+  resource, custody-owner, policy and field context; never sends keys/passphrases.
+
 - Add resource-owned event streams with principal-bound snapshot queries,
   cursor pagination, server-side histograms and separately authorized bodies.
 
