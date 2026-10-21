@@ -14,6 +14,13 @@
   Same-origin gateways retain the 30-second execution capability in a scoped
   HttpOnly cookie; application backends never receive E2EE plaintext.
 
+## [0.3.0-rc.2](https://github.com/2kims/lotor-js/compare/v0.3.0-rc.1...v0.3.0-rc.2) (2026-10-21)
+
+
+### Features
+
+* add authenticated resource-value decryption ([edde4f1](https://github.com/2kims/lotor-js/commit/edde4f11167c347aecd926da4d789a171c7c69fd))
+
 ## [0.3.0-rc.1](https://github.com/2kims/lotor-js/compare/v0.2.5-rc.1...v0.3.0-rc.1) (2026-10-16)
 
 
